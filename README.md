@@ -92,9 +92,13 @@ The daemon starts automatically on first use, but you can manage it manually:
 
 ```bash
 # Start daemon manually
+dictate-daemon
+# Or using the script:
 scripts/start-dictate-daemon.sh
 
 # Stop daemon (frees memory)
+dictate --stop
+# Or using the script:
 scripts/stop-dictate-daemon.sh
 
 # Check if daemon is running

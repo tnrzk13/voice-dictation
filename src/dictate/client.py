@@ -13,7 +13,8 @@ from .config import (
     SOCKET_PATH,
     DAEMON_STARTUP_TIMEOUT,
     RECV_BUFFER_SIZE,
-    END_MARKER
+    END_MARKER,
+    DAEMON_POLL_INTERVAL
 )
 from .utils import notify, type_text
 
@@ -62,9 +63,9 @@ class DaemonClient:
             )
 
         # Wait for daemon to be ready
-        timeout_iterations = int(DAEMON_STARTUP_TIMEOUT / 0.1)
+        timeout_iterations = int(DAEMON_STARTUP_TIMEOUT / DAEMON_POLL_INTERVAL)
         for _ in range(timeout_iterations):
-            time.sleep(0.1)
+            time.sleep(DAEMON_POLL_INTERVAL)
             if os.path.exists(SOCKET_PATH):
                 return True
 

@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 from faster_whisper import WhisperModel
 
-from .config import SOCKET_PATH, SAMPLE_RATE, DAEMON_LOG
+from .config import SOCKET_PATH, SAMPLE_RATE, DAEMON_LOG, END_MARKER, DAEMON_RECV_BUFFER_SIZE
 
 
 def setup_logging() -> None:
@@ -56,13 +56,14 @@ def main() -> None:
     logging.info("Ready for dictation requests!")
 
     while True:
+        connection = None
         try:
             connection, _ = sock.accept()
 
             # Receive audio data
             data = b""
             while True:
-                chunk = connection.recv(4096)
+                chunk = connection.recv(DAEMON_RECV_BUFFER_SIZE)
                 if not chunk:
                     break
                 data += chunk
@@ -79,12 +80,22 @@ def main() -> None:
                     connection.sendall(text.encode('utf-8') + b'\n')
 
             # Send end marker
-            connection.sendall(b'__END__\n')
-            connection.close()
+            connection.sendall((END_MARKER + '\n').encode('utf-8'))
 
+        except pickle.UnpicklingError as e:
+            logging.error(f"Failed to deserialize audio data: {e}")
+        except (ConnectionResetError, BrokenPipeError) as e:
+            logging.warning(f"Client disconnected unexpectedly: {e}")
+        except OSError as e:
+            logging.error(f"Socket error: {e}")
         except Exception as e:
-            logging.error(f"Error processing transcription: {e}")
-            continue
+            logging.error(f"Unexpected error processing transcription: {e}", exc_info=True)
+        finally:
+            if connection:
+                try:
+                    connection.close()
+                except OSError:
+                    pass  # Socket already closed
 
 
 if __name__ == "__main__":

@@ -9,7 +9,14 @@ import numpy as np
 from numpy.typing import NDArray
 import sounddevice as sd
 
-from .config import SAMPLE_RATE, CHUNK_DURATION, PROCESSING_TIMEOUT
+from .config import (
+    SAMPLE_RATE,
+    CHUNK_DURATION,
+    PROCESSING_TIMEOUT,
+    DAEMON_POLL_INTERVAL,
+    SILENCE_THRESHOLD,
+    SILENCE_DURATION
+)
 from .silence import SilenceDetector
 from .client import DaemonClient
 from .utils import notify
@@ -22,14 +29,21 @@ class StreamingAudioRecorder:
         self,
         daemon_client: DaemonClient,
         chunk_duration: float = CHUNK_DURATION,
-        streaming: bool = True
+        streaming: bool = True,
+        sample_rate: int = SAMPLE_RATE,
+        silence_threshold: float = SILENCE_THRESHOLD,
+        silence_duration: float = SILENCE_DURATION
     ):
         self.audio_queue: queue.Queue[NDArray[Any]] = queue.Queue()
-        self.detector = SilenceDetector()
+        self.detector = SilenceDetector(
+            threshold=silence_threshold,
+            silence_duration=silence_duration
+        )
         self.recording = True
         self.daemon_client = daemon_client
         self.chunk_duration = chunk_duration
-        self.chunk_samples = int(chunk_duration * SAMPLE_RATE)
+        self.sample_rate = sample_rate
+        self.chunk_samples = int(chunk_duration * sample_rate)
         self.accumulated_audio: list[NDArray[Any]] = []
         self.accumulated_samples = 0
         self.streaming = streaming
@@ -47,7 +61,7 @@ class StreamingAudioRecorder:
 
         self.audio_queue.put(indata.copy())
 
-        chunk_duration = frames / SAMPLE_RATE
+        chunk_duration = frames / self.sample_rate
         if self.detector.update(indata, chunk_duration):
             self.recording = False
 
@@ -63,7 +77,7 @@ class StreamingAudioRecorder:
         """Process audio queue and send chunks for transcription periodically."""
         while self.recording or not self.audio_queue.empty():
             try:
-                chunk = self.audio_queue.get(timeout=0.1)
+                chunk = self.audio_queue.get(timeout=DAEMON_POLL_INTERVAL)
                 self.accumulated_audio.append(chunk)
                 self.accumulated_samples += len(chunk)
 
@@ -97,13 +111,13 @@ class StreamingAudioRecorder:
 
         # Record audio
         with sd.InputStream(
-            samplerate=SAMPLE_RATE,
+            samplerate=self.sample_rate,
             channels=1,
             dtype=np.float32,
             callback=self.audio_callback
         ):
             while self.recording:
-                time.sleep(0.1)
+                time.sleep(DAEMON_POLL_INTERVAL)
 
         # Wait for processing to complete
         process_thread.join(timeout=PROCESSING_TIMEOUT)
