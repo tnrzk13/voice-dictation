@@ -22,12 +22,6 @@ class DaemonClient:
     """Client for communicating with the dictation daemon."""
 
     def __init__(self, transcription_handler: Optional[Callable[[str], None]] = None):
-        """
-        Initialize daemon client.
-
-        Args:
-            transcription_handler: Callable that receives transcribed text segments
-        """
         self.transcription_handler = transcription_handler or type_text
 
     @staticmethod

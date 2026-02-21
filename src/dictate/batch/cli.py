@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
-"""
-Command-line interface for voice dictation.
+"""Command-line interface for batch voice dictation."""
 
-Dictation client - records audio with pause detection and sends to daemon for transcription.
-Supports streaming transcription for long recording sessions.
-"""
 import sys
 import time
 import argparse
@@ -26,27 +22,6 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description="Voice dictation - press Enter to stop recording",
-        epilog="""
-Examples:
-  %(prog)s                                    # Default streaming mode
-  %(prog)s --stream                           # Explicit streaming mode
-  %(prog)s --no-stream                        # Non-streaming mode
-  %(prog)s --stop                             # Stop the daemon
-  %(prog)s --chunk-duration 3                 # More responsive streaming
-
-How it works:
-  1. Run the script (starts recording after 2-second delay)
-  2. Speak naturally into your microphone
-  3. Press Enter to stop recording
-  4. Text is typed at your cursor position
-
-Streaming vs Non-Streaming:
-  - Streaming (default): Transcribes and types text every 5 seconds while you speak.
-    Great for long dictation sessions.
-
-  - Non-streaming (--no-stream): Records everything, then transcribes all at once.
-    Good for short commands or when you want all text to appear together.
-        """
     )
     parser.add_argument(
         "--no-stream",
@@ -75,7 +50,7 @@ Streaming vs Non-Streaming:
         type=int,
         default=SAMPLE_RATE,
         metavar="RATE",
-        help=f"Audio sample rate in Hz (default: {SAMPLE_RATE}). Common values: 8000, 16000, 44100"
+        help=f"Audio sample rate in Hz (default: {SAMPLE_RATE})"
     )
     return parser.parse_args()
 
@@ -89,38 +64,39 @@ def stop_daemon() -> None:
     )
 
 
+def _ensure_daemon_running() -> None:
+    """Start the daemon if it's not already running, or exit on failure."""
+    if DaemonClient.is_running():
+        return
+    if not DaemonClient.start():
+        notify("Dictation Error", "Failed to start daemon")
+        sys.exit(1)
+
+
+def _run_dictation(args: argparse.Namespace) -> None:
+    """Record audio and transcribe via daemon."""
+    client = DaemonClient()
+    recorder = StreamingAudioRecorder(
+        client,
+        chunk_duration=args.chunk_duration,
+        streaming=not args.no_stream,
+        sample_rate=args.sample_rate,
+    )
+    recorder.record()
+
+
 def main() -> None:
     """Main entry point for dictation client."""
     args = parse_args()
 
-    # Handle --stop flag
     if args.stop:
         stop_daemon()
         return
 
     check_dependencies_or_exit()
-
-    # Determine streaming mode (default is True)
-    streaming = not args.no_stream
-
-    # Give user time to switch windows
     time.sleep(PRE_RECORDING_DELAY)
-
-    # Ensure daemon is running
-    if not DaemonClient.is_running():
-        if not DaemonClient.start():
-            notify("Dictation Error", "Failed to start daemon")
-            sys.exit(1)
-
-    # Record and transcribe
-    client = DaemonClient()
-    recorder = StreamingAudioRecorder(
-        client,
-        chunk_duration=args.chunk_duration,
-        streaming=streaming,
-        sample_rate=args.sample_rate,
-    )
-    recorder.record()
+    _ensure_daemon_running()
+    _run_dictation(args)
 
 
 if __name__ == "__main__":

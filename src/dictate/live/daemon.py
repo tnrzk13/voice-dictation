@@ -185,16 +185,21 @@ def _finalize_segments(model, snapshot, finalized_text, bytes_per_second):
     return finalized_text, bytes_trimmed
 
 
+def _pcm_to_float32(audio_bytes: bytes) -> np.ndarray:
+    """Convert raw PCM int16 bytes to float32 array normalized to [-1, 1]."""
+    return np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+
+
 def _transcribe_audio(model, audio_bytes: bytes) -> str:
     """Transcribe raw PCM int16 bytes, returning the full text."""
-    audio = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+    audio = _pcm_to_float32(audio_bytes)
     segments, _ = model.transcribe(audio, language="en", beam_size=1)
     return "".join(seg.text for seg in segments)
 
 
 def _transcribe_segments(model, audio_bytes: bytes) -> list:
     """Transcribe and return segment dicts with text, start, end times."""
-    audio = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+    audio = _pcm_to_float32(audio_bytes)
     segments, _ = model.transcribe(audio, language="en", beam_size=1)
     return [{"text": seg.text, "start": seg.start, "end": seg.end} for seg in segments]
 

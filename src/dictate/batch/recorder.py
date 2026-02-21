@@ -39,7 +39,7 @@ class StreamingAudioRecorder:
         self.accumulated_samples = 0
         self.streaming = streaming
 
-    def audio_callback(
+    def _audio_callback(
         self,
         indata: NDArray[Any],
         frames: int,
@@ -52,15 +52,7 @@ class StreamingAudioRecorder:
 
         self.audio_queue.put(indata.copy())
 
-    def _send_chunk_for_transcription(self, audio_chunk: NDArray[Any]) -> None:
-        """Send an audio chunk to daemon for transcription in background."""
-        threading.Thread(
-            target=self.daemon_client.transcribe,
-            args=(audio_chunk,),
-            daemon=True
-        ).start()
-
-    def process_audio_chunks(self) -> None:
+    def _process_audio_chunks(self) -> None:
         """Process audio queue and send chunks for transcription periodically."""
         while self.recording or not self.audio_queue.empty():
             try:
@@ -68,19 +60,15 @@ class StreamingAudioRecorder:
                 self.accumulated_audio.append(chunk)
                 self.accumulated_samples += len(chunk)
 
-                # When we have enough audio, send for transcription (only in streaming mode)
                 if self.streaming and self.accumulated_samples >= self.chunk_samples:
                     audio_to_transcribe = np.concatenate(self.accumulated_audio, axis=0)
-                    self._send_chunk_for_transcription(audio_to_transcribe)
-
-                    # Reset accumulator
+                    self.daemon_client.transcribe(audio_to_transcribe)
                     self.accumulated_audio = []
                     self.accumulated_samples = 0
 
             except queue.Empty:
                 continue
 
-        # Send any remaining audio (or all audio if not streaming)
         if self.accumulated_audio:
             audio_to_transcribe = np.concatenate(self.accumulated_audio, axis=0)
             self.daemon_client.transcribe(audio_to_transcribe)
@@ -89,23 +77,19 @@ class StreamingAudioRecorder:
         """Record audio until Enter is pressed, transcribing in chunks."""
         notify("Dictation", "Recording started...")
 
-        # Start processing thread
         process_thread = threading.Thread(
-            target=self.process_audio_chunks,
+            target=self._process_audio_chunks,
             daemon=True
         )
         process_thread.start()
 
-        # Record audio
         with sd.InputStream(
             samplerate=self.sample_rate,
             channels=1,
             dtype=np.float32,
-            callback=self.audio_callback
+            callback=self._audio_callback
         ):
             input("Recording... press Enter to stop.\n")
 
         self.recording = False
-
-        # Wait for processing to complete
         process_thread.join(timeout=PROCESSING_TIMEOUT)

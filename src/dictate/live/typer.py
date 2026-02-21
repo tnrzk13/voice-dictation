@@ -8,7 +8,7 @@ be revised.
 
 import re
 import time
-from typing import List, Tuple
+from typing import Tuple
 
 from dictate.xdotool import type_text as _type_text, send_backspaces as _send_backspaces
 
