@@ -1,10 +1,16 @@
 """Tests for the live dictation streaming client."""
 
 import json
+import time
 from unittest.mock import MagicMock, patch
 
-from dictate.live.client import LiveDaemonClient
+from dictate.live.client import LiveDaemonClient, PARTIAL_DEBOUNCE_SECONDS
 from dictate.live.typer import ProgressiveTyper
+
+
+def _wait_for_debounce():
+    """Wait long enough for a debounced partial to fire."""
+    time.sleep(PARTIAL_DEBOUNCE_SECONDS + 0.05)
 
 
 class TestHandleMessage:
@@ -13,14 +19,32 @@ class TestHandleMessage:
         client = LiveDaemonClient(typer=typer)
         return client, typer
 
-    def test_routes_partial_to_typer(self):
+    def test_partial_fires_after_debounce(self):
         client, typer = self._make_client()
         client._handle_message(json.dumps({"type": "partial", "text": "hel"}))
+        typer.apply_partial.assert_not_called()  # not yet
+        _wait_for_debounce()
         typer.apply_partial.assert_called_once_with("hel")
 
-    def test_routes_final_to_typer(self):
+    def test_rapid_partials_only_apply_latest(self):
+        client, typer = self._make_client()
+        client._handle_message(json.dumps({"type": "partial", "text": "h"}))
+        client._handle_message(json.dumps({"type": "partial", "text": "he"}))
+        client._handle_message(json.dumps({"type": "partial", "text": "hel"}))
+        _wait_for_debounce()
+        typer.apply_partial.assert_called_once_with("hel")
+
+    def test_routes_final_to_typer_immediately(self):
         client, typer = self._make_client()
         client._handle_message(json.dumps({"type": "final", "text": "hello"}))
+        typer.apply_final.assert_called_once_with("hello")
+
+    def test_final_cancels_pending_partial(self):
+        client, typer = self._make_client()
+        client._handle_message(json.dumps({"type": "partial", "text": "hel"}))
+        client._handle_message(json.dumps({"type": "final", "text": "hello"}))
+        _wait_for_debounce()
+        typer.apply_partial.assert_not_called()
         typer.apply_final.assert_called_once_with("hello")
 
     def test_end_signals_done(self):
@@ -44,26 +68,25 @@ class TestProcessBuffer:
 
     def test_parses_complete_lines(self):
         client, typer = self._make_client()
-        buffer = json.dumps({"type": "partial", "text": "hi"}).encode() + b"\n"
+        buffer = json.dumps({"type": "final", "text": "hi"}).encode() + b"\n"
         remaining = client._process_buffer(buffer)
         assert remaining == b""
-        typer.apply_partial.assert_called_once_with("hi")
+        typer.apply_final.assert_called_once_with("hi")
 
     def test_preserves_incomplete_line(self):
         client, typer = self._make_client()
-        complete = json.dumps({"type": "partial", "text": "a"}).encode() + b"\n"
+        complete = json.dumps({"type": "final", "text": "a"}).encode() + b"\n"
         incomplete = b'{"type": "partial"'
         remaining = client._process_buffer(complete + incomplete)
         assert remaining == incomplete
-        typer.apply_partial.assert_called_once_with("a")
+        typer.apply_final.assert_called_once_with("a")
 
-    def test_handles_multiple_lines(self):
+    def test_handles_multiple_finals(self):
         client, typer = self._make_client()
-        line1 = json.dumps({"type": "partial", "text": "a"}).encode() + b"\n"
+        line1 = json.dumps({"type": "final", "text": "a"}).encode() + b"\n"
         line2 = json.dumps({"type": "final", "text": "ab"}).encode() + b"\n"
         client._process_buffer(line1 + line2)
-        typer.apply_partial.assert_called_once_with("a")
-        typer.apply_final.assert_called_once_with("ab")
+        assert typer.apply_final.call_count == 2
 
 
 class TestSendAudio:
