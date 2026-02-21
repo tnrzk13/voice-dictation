@@ -1,4 +1,4 @@
-"""Streaming client for the live dictation daemon.
+"""Streaming client for the dictation daemon.
 
 Maintains a persistent socket connection for an entire dictation session.
 Audio frames are sent continuously; partial/final JSON results are received
@@ -11,23 +11,26 @@ import socket
 import threading
 from typing import Optional
 
+from dictate.config import DAEMON_POLL_INTERVAL, DAEMON_STARTUP_TIMEOUT, SOCKET_PATH
 from dictate.daemon_support import is_daemon_running, start_daemon_process
 
-from .config import (
-    LIVE_DAEMON_POLL_INTERVAL,
-    LIVE_DAEMON_STARTUP_TIMEOUT,
-    LIVE_SOCKET_PATH,
-)
 from .typer import ProgressiveTyper
 
 logger = logging.getLogger(__name__)
 
 
 class LiveDaemonClient:
-    """Persistent streaming client for the live dictation daemon."""
+    """Persistent streaming client for the dictation daemon."""
 
-    def __init__(self, typer: Optional[ProgressiveTyper] = None) -> None:
+    def __init__(
+        self,
+        typer: Optional[ProgressiveTyper] = None,
+        streaming: bool = True,
+        stop_event: Optional[threading.Event] = None,
+    ) -> None:
         self._typer = typer or ProgressiveTyper()
+        self._streaming = streaming
+        self._stop_event = stop_event
         self._sock: Optional[socket.socket] = None
         self._receiver_thread: Optional[threading.Thread] = None
         self._done = threading.Event()
@@ -42,9 +45,9 @@ class LiveDaemonClient:
         self._on_disconnect = event
 
     def connect(self) -> None:
-        """Connect to the live daemon socket."""
+        """Connect to the daemon socket."""
         self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self._sock.connect(LIVE_SOCKET_PATH)
+        self._sock.connect(SOCKET_PATH)
         self._done.clear()
         self._receiver_thread = threading.Thread(
             target=self._receive_messages, daemon=True
@@ -115,29 +118,31 @@ class LiveDaemonClient:
         msg_type = msg.get("type")
         text = msg.get("text", "")
 
-        if msg_type == "partial":
+        if msg_type == "end":
+            self._done.set()
+        elif self._stop_event is not None and self._stop_event.is_set():
+            return
+        elif msg_type == "partial" and self._streaming:
             self._typer.apply_partial(text)
         elif msg_type == "final":
             self._typer.apply_final(text)
-        elif msg_type == "end":
-            self._done.set()
 
     @staticmethod
     def is_daemon_running() -> bool:
-        """Check if the live daemon socket exists."""
-        return is_daemon_running(LIVE_SOCKET_PATH)
+        """Check if the daemon socket exists."""
+        return is_daemon_running(SOCKET_PATH)
 
     @staticmethod
     def start_daemon() -> bool:
-        """Start the live daemon in the background."""
+        """Start the daemon in the background."""
         from dictate.system import notify
 
-        notify("Live Dictation", "Starting daemon (loading Whisper model)...")
+        notify("Dictation", "Starting daemon (loading Whisper model)...")
 
         return start_daemon_process(
-            entry_point="dictate-live-daemon",
+            entry_point="dictate-daemon",
             module_path="dictate.live.daemon",
-            socket_path=LIVE_SOCKET_PATH,
-            timeout=LIVE_DAEMON_STARTUP_TIMEOUT,
-            poll_interval=LIVE_DAEMON_POLL_INTERVAL,
+            socket_path=SOCKET_PATH,
+            timeout=DAEMON_STARTUP_TIMEOUT,
+            poll_interval=DAEMON_POLL_INTERVAL,
         )

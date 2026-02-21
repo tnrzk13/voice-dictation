@@ -1,10 +1,10 @@
 # Voice Dictation
 
-Linux voice dictation - speak into your mic, text appears at your cursor. Batch and live streaming modes powered by [faster-whisper](https://github.com/SYSTRAN/faster-whisper).
+Linux voice dictation - speak into your mic, text appears at your cursor. Powered by [faster-whisper](https://github.com/SYSTRAN/faster-whisper) with real-time streaming transcription.
 
 ## Features
 
-- **Two modes**: Batch (transcribes in chunks) and live (real-time streaming with corrections)
+- **Real-time streaming**: Words appear and self-correct as you speak
 - **Daemon architecture**: Whisper model stays loaded in memory for fast transcription
 - **Desktop integration**: Types text directly at your cursor via `xdotool`
 - **Desktop notifications**: Visual feedback for recording status
@@ -34,131 +34,101 @@ cd voice-dictation
 pip install -e .
 ```
 
-This installs five commands: `dictate`, `dictate-live`, `dictate-stop`, `dictate-daemon`, and `dictate-live-daemon`.
+This installs three commands: `dictate`, `dictate-daemon`, and `dictate-stop`.
 
 The Whisper model (~150MB) downloads automatically on first use.
 
 ## Usage
 
-### Live mode (recommended)
-
-Real-time streaming - text appears and self-corrects as you speak.
-
 ```bash
-dictate-live
-# Press Escape or close the terminal to stop
-```
-
-### Batch mode
-
-Transcribes in chunks while you speak, or all at once after recording.
-
-```bash
-# Streaming (default) - transcribes every 5 seconds
+# Start dictation - text streams in real-time
 dictate
 
-# Non-streaming - transcribes everything after you stop
+# Non-streaming - text appears only after you stop recording
 dictate --no-stream
 
-# Press any key to stop recording
+# Press Enter or Escape to stop recording
 ```
 
-### Stopping daemons
+### Stopping the daemon
 
 ```bash
-# Stop both daemons and free memory
+# Stop daemon and free memory
 dictate-stop
 
-# Stop batch daemon only
+# Or
 dictate --stop
 ```
 
 ### Keyboard shortcut (optional)
 
-Bind `dictate-live` to a shortcut in your desktop environment:
+Bind `dictate` to a shortcut in your desktop environment:
 
 **GNOME/Ubuntu**:
-Settings > Keyboard > Custom Shortcuts > Command: `dictate-live`
+Settings > Keyboard > Custom Shortcuts > Command: `dictate`
 
 **i3/sway**:
 ```
-bindsym $mod+d exec dictate-live
+bindsym $mod+d exec dictate
 ```
 
 ## Configuration
 
-Edit `src/dictate/config.py` for shared settings (audio, Whisper model, batch daemon):
+Edit `src/dictate/config.py` for shared settings:
 
 ```python
 SAMPLE_RATE = 16000          # Hz - Whisper expects 16kHz
-SILENCE_THRESHOLD = 0.01     # RMS energy below this = silence
-SILENCE_DURATION = 2         # seconds of silence before auto-stop
-CHUNK_DURATION = 5           # seconds between streaming transcriptions
 WHISPER_MODEL_SIZE = "base"  # "tiny", "small", "medium", "large-v3"
 ```
 
-Edit `src/dictate/live/config.py` for live-specific settings:
+Streaming settings are also in `src/dictate/config.py`:
 
 ```python
 TRANSCRIBE_INTERVAL = 2   # seconds between transcription cycles
 MAX_WINDOW_SECONDS = 20   # finalize segments when audio exceeds this
 ```
 
-### Finding your silence threshold
-
-```bash
-python scripts/test-silence-threshold.py
-# Speak normally, then be quiet - watch the RMS values
-```
-
 ## Architecture
 
 ```
-Batch mode                          Live mode
-┌──────────────┐                    ┌───────────────┐
-│   dictate    │                    │  dictate-live  │
-│  (records,   │                    │  (streams raw  │
-│  sends chunks│                    │   PCM audio)   │
-└──────┬───────┘                    └───────┬────────┘
-       │ Unix socket                        │ Unix socket
-       v                                    v
-┌──────────────┐                    ┌────────────────┐
-│dictate-daemon│                    │dictate-live-   │
-│  (Whisper    │                    │daemon (Whisper │
-│   transcribe)│                    │ + diff-typing) │
-└──────┬───────┘                    └───────┬────────┘
-       │                                    │
-       v                                    v
-  xdotool types                       xdotool types
-  at cursor                           at cursor
+┌──────────┐
+│  dictate  │
+│ (streams  │
+│ raw PCM   │
+│  audio)   │
+└─────┬─────┘
+      │ Unix socket
+      v
+┌──────────────┐
+│dictate-daemon│
+│  (Whisper +  │
+│ diff-typing) │
+└─────┬────────┘
+      │
+      v
+ xdotool types
+ at cursor
 ```
 
-Both daemons keep the Whisper model loaded in memory - no startup delay after the first launch.
+The daemon keeps the Whisper model loaded in memory - no startup delay after the first launch.
 
 ## Project Structure
 
 ```
 voice-dictation/
 ├── src/dictate/
-│   ├── config.py            # Shared configuration (audio, Whisper, batch daemon)
+│   ├── config.py            # Shared configuration (audio, Whisper)
 │   ├── daemon_support.py    # Shared daemon utilities (socket, logging, lifecycle)
 │   ├── system.py            # Desktop notifications, dependency checks
 │   ├── xdotool.py           # Text typing via xdotool
 │   ├── stop.py              # dictate-stop command
-│   ├── silence.py           # Silence detection
-│   ├── batch/               # Batch dictation mode
-│   │   ├── cli.py           # dictate command
-│   │   ├── daemon.py        # dictate-daemon
-│   │   ├── client.py        # Daemon client
-│   │   └── recorder.py      # Audio recording with streaming
-│   └── live/                # Live streaming dictation mode
-│       ├── cli.py           # dictate-live command
-│       ├── daemon.py        # dictate-live-daemon
+│   └── live/                # Streaming dictation
+│       ├── cli.py           # dictate command
+│       ├── daemon.py        # dictate-daemon
 │       ├── client.py        # Streaming daemon client
-│       ├── config.py        # Live-specific configuration
 │       ├── recorder.py      # Audio capture and streaming
 │       ├── typer.py         # Progressive diff-based typing
-│       └── keyboard_monitor.py  # Escape key detection
+│       └── keyboard_monitor.py  # Enter/Escape key detection
 ├── tests/
 ├── scripts/
 ├── pyproject.toml
@@ -170,12 +140,10 @@ voice-dictation/
 ### Daemon won't start
 ```bash
 # Check logs
-cat ~/.local/share/voice-dictation/daemon.log       # batch
-cat ~/.local/share/voice-dictation/live-daemon.log   # live
+cat ~/.local/share/voice-dictation/live-daemon.log
 
 # Remove stale socket
-rm /tmp/dictate-daemon.sock      # batch
-rm /tmp/dictate-live-daemon.sock # live
+rm /tmp/dictate-live-daemon.sock
 ```
 
 ### Text not appearing
@@ -194,7 +162,7 @@ python -c "from faster_whisper import WhisperModel; WhisperModel('base')"
 - `numpy` - Audio processing
 - `sounddevice` - Microphone input
 - `faster-whisper` - Whisper model inference (CTranslate2, CPU-optimized)
-- `pynput` - Keyboard monitoring (live mode)
+- `pynput` - Keyboard monitoring
 
 ## License
 

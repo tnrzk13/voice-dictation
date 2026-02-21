@@ -1,29 +1,31 @@
-"""Command-line interface for live streaming dictation.
+"""Command-line interface for voice dictation.
 
-Entry point for the `dictate-live` command. Uses Whisper for real-time
+Entry point for the `dictate` command. Uses Whisper for real-time
 streaming transcription - words appear as you speak.
 """
 
 import argparse
 import sys
 
+from dictate.config import SAMPLE_RATE, SOCKET_PATH
 from dictate.daemon_support import stop_daemon as _stop_daemon
 from dictate.system import check_dependencies_or_exit, notify
-
-from .config import LIVE_SOCKET_PATH
-
-from dictate.config import SAMPLE_RATE
 
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="Live streaming voice dictation with real-time transcription",
+        description="Voice dictation with real-time streaming transcription",
     )
     parser.add_argument(
         "--stop",
         action="store_true",
-        help="Stop the live dictation daemon",
+        help="Stop the dictation daemon",
+    )
+    parser.add_argument(
+        "--no-stream",
+        action="store_true",
+        help="Disable streaming - text appears only after recording stops",
     )
     parser.add_argument(
         "--sample-rate",
@@ -36,16 +38,16 @@ def parse_args() -> argparse.Namespace:
 
 
 def stop_daemon() -> None:
-    """Stop the live dictation daemon and clean up."""
+    """Stop the dictation daemon and clean up."""
     _stop_daemon(
-        socket_path=LIVE_SOCKET_PATH,
-        pkill_patterns=["dictate.live.daemon", "dictate-live-daemon"],
-        daemon_name="Live Dictation",
+        socket_path=SOCKET_PATH,
+        pkill_patterns=["dictate.live.daemon", "dictate-daemon"],
+        daemon_name="Dictation",
     )
 
 
 def main() -> None:
-    """Main entry point for live dictation."""
+    """Main entry point for dictation."""
     args = parse_args()
 
     if args.stop:
@@ -63,25 +65,34 @@ def _ensure_daemon_running() -> None:
 
     if not LiveDaemonClient.is_daemon_running():
         if not LiveDaemonClient.start_daemon():
-            notify("Live Dictation Error", "Failed to start daemon")
+            notify("Dictation Error", "Failed to start daemon")
             sys.exit(1)
 
 
 def _run_dictation(args: argparse.Namespace) -> None:
     """Connect to daemon, record audio, and stream transcription."""
+    import threading
+
     from .client import LiveDaemonClient
     from .recorder import LiveRecorder
 
-    notify("Live Dictation", "Recording started...")
+    notify("Dictation", "Recording started...")
 
-    client = LiveDaemonClient()
+    stop_event = threading.Event()
+
+    client = LiveDaemonClient(
+        streaming=not args.no_stream,
+        stop_event=stop_event,
+    )
     client.connect()
 
     recorder = LiveRecorder(
         client,
+        typer=client.typer,
         sample_rate=args.sample_rate,
+        stop_event=stop_event,
     )
-    client.set_stop_event(recorder.stop_event)
+    client.set_stop_event(stop_event)
     recorder.record()
 
 

@@ -14,6 +14,9 @@ from pynput import keyboard
 XDOTOOL_GRACE_PERIOD = 0.5  # seconds after last xdotool call to ignore keypresses
 
 
+_ALWAYS_STOP_KEYS = {keyboard.Key.esc, keyboard.Key.enter}
+
+
 class KeyboardMonitor:
     """Monitors for physical keyboard activity, ignoring programmatic typing."""
 
@@ -33,6 +36,9 @@ class KeyboardMonitor:
             self._listener.stop()
 
     def _on_key_press(self, key) -> None:
+        if key in _ALWAYS_STOP_KEYS:
+            self._stop_event.set()
+            return
         elapsed = time.time() - self._typer.last_typed_at
         if elapsed > XDOTOOL_GRACE_PERIOD:
             self._stop_event.set()

@@ -24,21 +24,20 @@ import threading
 
 import numpy as np
 
-from dictate.config import SAMPLE_RATE
-from dictate.daemon_support import (
-    cleanup_socket,
-    create_daemon_socket,
-    setup_daemon_logging,
-)
-
-from .config import (
-    LIVE_DAEMON_LOG,
-    LIVE_SOCKET_PATH,
+from dictate.config import (
+    DAEMON_LOG,
     MAX_WINDOW_SECONDS,
+    SAMPLE_RATE,
+    SOCKET_PATH,
     TRANSCRIBE_INTERVAL,
     WHISPER_COMPUTE_TYPE,
     WHISPER_DEVICE,
     WHISPER_MODEL_SIZE,
+)
+from dictate.daemon_support import (
+    cleanup_socket,
+    create_daemon_socket,
+    setup_daemon_logging,
 )
 
 
@@ -212,11 +211,11 @@ def _send_message(connection: socket.socket, msg_type: str, text: str) -> None:
 
 def main() -> None:
     """Main daemon entry point - load model and listen for connections."""
-    setup_daemon_logging(LIVE_DAEMON_LOG)
+    setup_daemon_logging(DAEMON_LOG)
     model = _load_whisper_model()
 
-    sock = create_daemon_socket(LIVE_SOCKET_PATH)
-    logging.info(f"Live daemon ready on {LIVE_SOCKET_PATH}")
+    sock = create_daemon_socket(SOCKET_PATH)
+    logging.info(f"Daemon ready on {SOCKET_PATH}")
 
     try:
         _accept_connections(sock, model)
@@ -224,7 +223,7 @@ def main() -> None:
         logging.info("Daemon shutting down.")
     finally:
         sock.close()
-        cleanup_socket(LIVE_SOCKET_PATH)
+        cleanup_socket(SOCKET_PATH)
 
 
 def _accept_connections(sock: socket.socket, model) -> None:
