@@ -7,6 +7,7 @@ be revised.
 """
 
 import re
+import time
 from typing import List, Tuple
 
 from dictate.xdotool import type_text as _type_text, send_backspaces as _send_backspaces
@@ -18,6 +19,7 @@ class ProgressiveTyper:
     def __init__(self) -> None:
         self._committed = ""  # Finalized text - won't change
         self._pending = ""  # Currently displayed partial - may be revised
+        self.last_typed_at: float = 0.0
 
     @property
     def committed(self) -> str:
@@ -86,10 +88,14 @@ class ProgressiveTyper:
 
     def _execute_edit(self, backspaces: int, to_type: str) -> None:
         """Send backspaces and type new text via xdotool."""
+        if backspaces > 0 or to_type:
+            self.last_typed_at = time.time()
         if backspaces > 0:
             _send_backspaces(backspaces)
         if to_type:
             _type_text(to_type)
+        if backspaces > 0 or to_type:
+            self.last_typed_at = time.time()
 
 
 def _capitalize_first(text: str) -> str:
