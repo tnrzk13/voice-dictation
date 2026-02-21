@@ -6,6 +6,7 @@ followed by new characters. On final result, locks text in so it won't
 be revised.
 """
 
+import re
 from typing import List, Tuple
 
 from dictate.xdotool import type_text as _type_text, send_backspaces as _send_backspaces
@@ -61,13 +62,20 @@ class ProgressiveTyper:
     def _strip_committed_prefix(self, text: str) -> str:
         """Remove the committed portion from the beginning of new text.
 
-        Case-insensitive because committed text is capitalized but Vosk
-        sends lowercase.
+        Uses word-based comparison so punctuation in committed text
+        (from recasepunc) doesn't break matching against Vosk's raw output.
         """
-        committed_len = len(self._committed)
-        if text[:committed_len].lower() == self._committed.lower():
-            return text[committed_len:]
-        return text
+        committed_words = _strip_punctuation(self._committed).split()
+        if not committed_words:
+            return text
+        text_words = text.split()
+        if len(text_words) < len(committed_words):
+            return text
+        for i, committed_word in enumerate(committed_words):
+            if text_words[i].lower() != committed_word.lower():
+                return text
+        remaining_words = text_words[len(committed_words) :]
+        return " ".join(remaining_words) if remaining_words else ""
 
     def _compute_edit(self, old: str, new: str) -> Tuple[int, str]:
         """Compute minimal backspaces and new text to transform old into new."""
@@ -98,5 +106,13 @@ def _find_common_prefix_length(a: str, b: str) -> int:
         if a[i] != b[i]:
             return i
     return limit
+
+
+_PUNCTUATION_RE = re.compile(r"[,.\?!]")
+
+
+def _strip_punctuation(text: str) -> str:
+    """Remove punctuation marks that recasepunc may have added."""
+    return _PUNCTUATION_RE.sub("", text)
 
 

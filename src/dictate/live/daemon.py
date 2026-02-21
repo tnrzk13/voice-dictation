@@ -25,9 +25,12 @@ from dictate.daemon_support import (
     setup_daemon_logging,
 )
 
+from dictate.punctuation import try_load_punctuation
+
 from .config import (
     LIVE_DAEMON_LOG,
     LIVE_SOCKET_PATH,
+    RECASEPUNC_MODEL_DIR,
     SAMPLE_RATE,
     VOSK_MODEL_DIR,
     VOSK_MODEL_NAME,
@@ -74,7 +77,7 @@ def _create_recognizer(model):
     return recognizer
 
 
-def handle_client(connection: socket.socket, model, recognizer=None) -> None:
+def handle_client(connection: socket.socket, model, punctuator=None, recognizer=None) -> None:
     """Process a single client's streaming audio session."""
     if recognizer is None:
         recognizer = _create_recognizer(model)
@@ -89,6 +92,7 @@ def handle_client(connection: socket.socket, model, recognizer=None) -> None:
                 result = json.loads(recognizer.Result())
                 text = result.get("text", "").strip()
                 if text:
+                    text = _apply_punctuation(punctuator, text)
                     _send_message(connection, "final", text)
             else:
                 partial = json.loads(recognizer.PartialResult())
@@ -100,6 +104,7 @@ def handle_client(connection: socket.socket, model, recognizer=None) -> None:
         result = json.loads(recognizer.FinalResult())
         text = result.get("text", "").strip()
         if text:
+            text = _apply_punctuation(punctuator, text)
             _send_message(connection, "final", text)
 
         _send_message(connection, "end", "")
@@ -108,6 +113,17 @@ def handle_client(connection: socket.socket, model, recognizer=None) -> None:
         logging.warning(f"Client disconnected: {e}")
     except Exception as e:
         logging.error(f"Error handling client: {e}", exc_info=True)
+
+
+def _apply_punctuation(punctuator, text: str) -> str:
+    """Apply punctuation restoration if available, falling back to raw text."""
+    if punctuator is None:
+        return text
+    try:
+        return punctuator.restore(text)
+    except Exception as e:
+        logging.warning(f"Punctuation restoration failed: {e}")
+        return text
 
 
 def _send_message(connection: socket.socket, msg_type: str, text: str) -> None:
@@ -120,12 +136,13 @@ def main() -> None:
     """Main daemon entry point - load model and listen for connections."""
     setup_daemon_logging(LIVE_DAEMON_LOG)
     model = load_vosk_model()
+    punctuator = try_load_punctuation(RECASEPUNC_MODEL_DIR)
 
     sock = create_daemon_socket(LIVE_SOCKET_PATH)
     logging.info(f"Live daemon ready on {LIVE_SOCKET_PATH}")
 
     try:
-        _accept_connections(sock, model)
+        _accept_connections(sock, model, punctuator)
     except KeyboardInterrupt:
         logging.info("Daemon shutting down.")
     finally:
@@ -133,14 +150,14 @@ def main() -> None:
         cleanup_socket(LIVE_SOCKET_PATH)
 
 
-def _accept_connections(sock: socket.socket, model) -> None:
+def _accept_connections(sock: socket.socket, model, punctuator=None) -> None:
     """Accept client connections in a loop."""
     while True:
         connection = None
         try:
             connection, _ = sock.accept()
             logging.info("Client connected.")
-            handle_client(connection, model)
+            handle_client(connection, model, punctuator)
             logging.info("Client session ended.")
         except OSError as e:
             logging.error(f"Socket error: {e}")

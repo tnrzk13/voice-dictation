@@ -12,6 +12,9 @@ SILENCE_DURATION = 8
 VOSK_MODEL_NAME = "vosk-model-en-us-0.22"
 VOSK_MODEL_DIR = os.path.expanduser("~/.local/share/voice-dictation/models")
 
+# Punctuation restoration model (recasepunc)
+RECASEPUNC_MODEL_DIR = os.path.join(VOSK_MODEL_DIR, "vosk-recasepunc-en-0.22")
+
 # Daemon Configuration
 LIVE_SOCKET_PATH = "/tmp/dictate-live-daemon.sock"
 LIVE_DAEMON_LOG = os.path.expanduser("~/.local/share/voice-dictation/live-daemon.log")
@@ -29,4 +32,5 @@ __all__ = [
     "LIVE_DAEMON_LOG",
     "LIVE_DAEMON_STARTUP_TIMEOUT",
     "LIVE_DAEMON_POLL_INTERVAL",
+    "RECASEPUNC_MODEL_DIR",
 ]

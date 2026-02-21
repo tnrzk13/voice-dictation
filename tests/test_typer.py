@@ -2,7 +2,12 @@
 
 from unittest.mock import patch
 
-from dictate.live.typer import ProgressiveTyper, _find_common_prefix_length, _capitalize_first
+from dictate.live.typer import (
+    ProgressiveTyper,
+    _find_common_prefix_length,
+    _capitalize_first,
+    _strip_punctuation,
+)
 
 
 class TestCapitalizeFirst:
@@ -20,6 +25,26 @@ class TestCapitalizeFirst:
 
     def test_preserves_rest(self):
         assert _capitalize_first("hELLO") == "HELLO"
+
+
+class TestStripPunctuation:
+    def test_removes_comma(self):
+        assert _strip_punctuation("hello, world") == "hello world"
+
+    def test_removes_period(self):
+        assert _strip_punctuation("hello world.") == "hello world"
+
+    def test_removes_question_mark(self):
+        assert _strip_punctuation("how are you?") == "how are you"
+
+    def test_removes_exclamation(self):
+        assert _strip_punctuation("wow!") == "wow"
+
+    def test_no_punctuation(self):
+        assert _strip_punctuation("hello world") == "hello world"
+
+    def test_empty_string(self):
+        assert _strip_punctuation("") == ""
 
 
 class TestFindCommonPrefixLength:
@@ -150,6 +175,26 @@ class TestProgressiveTyperFinals:
         backspaces, typed = typer.apply_partial("hello world")
         assert typed == "World"
         assert typer.displayed_text == "Hello World"
+
+    def test_prefix_stripping_ignores_punctuation_in_committed(self, mock_type, mock_bs):
+        """Committed text may have punctuation from recasepunc, but Vosk sends raw."""
+        typer = ProgressiveTyper()
+        # Simulate a punctuated final being committed
+        typer._committed = "Hello, world. "
+        typer._pending = ""
+        # Vosk sends next partial without punctuation
+        backspaces, typed = typer.apply_partial("hello world this is new")
+        assert typed == "This is new"
+        assert typer.displayed_text == "Hello, world. This is new"
+
+    def test_prefix_stripping_with_question_mark(self, mock_type, mock_bs):
+        """Question marks in committed text don't break prefix matching."""
+        typer = ProgressiveTyper()
+        typer._committed = "How are you? "
+        typer._pending = ""
+        backspaces, typed = typer.apply_partial("how are you doing")
+        assert typed == "Doing"
+        assert typer.displayed_text == "How are you? Doing"
 
 
 @patch("dictate.live.typer._send_backspaces")
