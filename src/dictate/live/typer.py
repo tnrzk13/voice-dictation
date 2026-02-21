@@ -50,7 +50,8 @@ class ProgressiveTyper:
             Tuple of (backspaces_needed, text_to_type) for the display update.
         """
         new_pending = self._strip_committed_prefix(text)
-        spaced = new_pending + " "
+        capitalized = _capitalize_first(new_pending)
+        spaced = capitalized + " "
         backspaces, to_type = self._compute_edit(self._pending, spaced)
         self._committed += spaced
         self._pending = ""
@@ -76,6 +77,13 @@ class ProgressiveTyper:
             _send_backspaces(backspaces)
         if to_type:
             _type_text(to_type)
+
+
+def _capitalize_first(text: str) -> str:
+    """Capitalize the first character, leaving the rest unchanged."""
+    if not text:
+        return text
+    return text[0].upper() + text[1:]
 
 
 def _find_common_prefix_length(a: str, b: str) -> int:

@@ -2,7 +2,24 @@
 
 from unittest.mock import patch
 
-from dictate.live.typer import ProgressiveTyper, _find_common_prefix_length
+from dictate.live.typer import ProgressiveTyper, _find_common_prefix_length, _capitalize_first
+
+
+class TestCapitalizeFirst:
+    def test_capitalizes_lowercase(self):
+        assert _capitalize_first("hello") == "Hello"
+
+    def test_already_capitalized(self):
+        assert _capitalize_first("Hello") == "Hello"
+
+    def test_empty_string(self):
+        assert _capitalize_first("") == ""
+
+    def test_single_char(self):
+        assert _capitalize_first("h") == "H"
+
+    def test_preserves_rest(self):
+        assert _capitalize_first("hELLO") == "HELLO"
 
 
 class TestFindCommonPrefixLength:
@@ -83,42 +100,42 @@ class TestProgressiveTyperFinals:
         typer = ProgressiveTyper()
         typer.apply_partial("hello")
         typer.apply_final("hello world")
-        assert typer.committed == "hello world "
+        assert typer.committed == "Hello world "
         assert typer.pending == ""
-        assert typer.displayed_text == "hello world "
+        assert typer.displayed_text == "Hello world "
 
     def test_final_without_partial(self, mock_type, mock_bs):
         typer = ProgressiveTyper()
         backspaces, typed = typer.apply_final("hello")
         assert backspaces == 0
-        assert typed == "hello "
-        assert typer.committed == "hello "
+        assert typed == "Hello "
+        assert typer.committed == "Hello "
+
+    def test_final_capitalizes_each_sentence(self, mock_type, mock_bs):
+        typer = ProgressiveTyper()
+        typer.apply_final("hello")
+        typer.apply_final("world")
+        assert typer.committed == "Hello World "
+        assert typer.displayed_text == "Hello World "
 
     def test_partials_after_final_build_on_committed(self, mock_type, mock_bs):
         typer = ProgressiveTyper()
         typer.apply_final("hello")
-        assert typer.committed == "hello "
+        assert typer.committed == "Hello "
 
         # Next partial - Vosk doesn't include the committed prefix
         backspaces, typed = typer.apply_partial("world")
         assert backspaces == 0
         assert typed == "world"
-        assert typer.displayed_text == "hello world"
-
-    def test_multiple_finals_accumulate(self, mock_type, mock_bs):
-        typer = ProgressiveTyper()
-        typer.apply_final("hello")
-        typer.apply_final("world")
-        assert typer.committed == "hello world "
-        assert typer.displayed_text == "hello world "
+        assert typer.displayed_text == "Hello world"
 
     def test_final_corrects_partial(self, mock_type, mock_bs):
         typer = ProgressiveTyper()
         typer.apply_partial("helo")
         backspaces, typed = typer.apply_final("hello")
-        assert backspaces == 1  # delete "o" from "helo"
-        assert typed == "lo "
-        assert typer.committed == "hello "
+        assert backspaces == 4  # delete "helo", type "Hello "
+        assert typed == "Hello "
+        assert typer.committed == "Hello "
 
 
 @patch("dictate.live.typer._send_backspaces")
