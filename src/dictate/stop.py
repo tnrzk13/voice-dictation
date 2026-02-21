@@ -14,6 +14,6 @@ def main() -> None:
     )
     stop_daemon(
         socket_path=LIVE_SOCKET_PATH,
-        pkill_patterns=["dictate.live.daemon", "dictate-live-daemon"],
+        pkill_patterns=["dictate.live.daemon", "dictate-live-daemon", "dictate-live"],
         daemon_name="Live Dictation",
     )

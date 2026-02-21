@@ -30,6 +30,10 @@ class LiveRecorder:
         self._sample_rate = sample_rate
         self._stop = threading.Event()
 
+    @property
+    def stop_event(self) -> threading.Event:
+        return self._stop
+
     def record(self) -> None:
         """Record audio until process is killed, streaming frames to daemon."""
         with sd.InputStream(

@@ -31,10 +31,15 @@ class LiveDaemonClient:
         self._sock: Optional[socket.socket] = None
         self._receiver_thread: Optional[threading.Thread] = None
         self._done = threading.Event()
+        self._on_disconnect: Optional[threading.Event] = None
 
     @property
     def typer(self) -> ProgressiveTyper:
         return self._typer
+
+    def set_stop_event(self, event: threading.Event) -> None:
+        """Register an external event to set when the daemon disconnects."""
+        self._on_disconnect = event
 
     def connect(self) -> None:
         """Connect to the live daemon socket."""
@@ -89,6 +94,8 @@ class LiveDaemonClient:
             pass
         finally:
             self._done.set()
+            if self._on_disconnect is not None:
+                self._on_disconnect.set()
 
     def _process_buffer(self, buffer: bytes) -> bytes:
         """Parse complete JSON lines from buffer, route to typer."""

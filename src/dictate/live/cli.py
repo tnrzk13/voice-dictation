@@ -81,6 +81,7 @@ def _run_dictation(args: argparse.Namespace) -> None:
         client,
         sample_rate=args.sample_rate,
     )
+    client.set_stop_event(recorder.stop_event)
     recorder.record()
 
 
