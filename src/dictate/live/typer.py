@@ -38,6 +38,7 @@ class ProgressiveTyper:
             Tuple of (backspaces_needed, text_to_type) for the display update.
         """
         new_pending = self._strip_committed_prefix(text)
+        new_pending = _capitalize_first(new_pending)
         backspaces, to_type = self._compute_edit(self._pending, new_pending)
         self._pending = new_pending
         self._execute_edit(backspaces, to_type)
@@ -59,9 +60,14 @@ class ProgressiveTyper:
         return backspaces, to_type
 
     def _strip_committed_prefix(self, text: str) -> str:
-        """Remove the committed portion from the beginning of new text."""
-        if text.startswith(self._committed):
-            return text[len(self._committed):]
+        """Remove the committed portion from the beginning of new text.
+
+        Case-insensitive because committed text is capitalized but Vosk
+        sends lowercase.
+        """
+        committed_len = len(self._committed)
+        if text[:committed_len].lower() == self._committed.lower():
+            return text[committed_len:]
         return text
 
     def _compute_edit(self, old: str, new: str) -> Tuple[int, str]:

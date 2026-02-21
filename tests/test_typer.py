@@ -47,61 +47,64 @@ class TestFindCommonPrefixLength:
 @patch("dictate.live.typer._send_backspaces")
 @patch("dictate.live.typer._type_text")
 class TestProgressiveTyperPartials:
-    def test_first_partial_types_everything(self, mock_type, mock_bs):
+    def test_first_partial_capitalizes(self, mock_type, mock_bs):
         typer = ProgressiveTyper()
         backspaces, typed = typer.apply_partial("hello")
         assert backspaces == 0
-        assert typed == "hello"
-        assert typer.displayed_text == "hello"
+        assert typed == "Hello"
+        assert typer.displayed_text == "Hello"
 
     def test_partial_extends_previous(self, mock_type, mock_bs):
         typer = ProgressiveTyper()
-        typer.apply_partial("hel")
-        backspaces, typed = typer.apply_partial("hello")
+        typer.apply_partial("hel")  # pending = "Hel"
+        backspaces, typed = typer.apply_partial("hello")  # capitalize -> "Hello"
         assert backspaces == 0
         assert typed == "lo"
-        assert typer.displayed_text == "hello"
+        assert typer.displayed_text == "Hello"
 
     def test_partial_corrects_previous(self, mock_type, mock_bs):
         typer = ProgressiveTyper()
-        typer.apply_partial("hello wor")
-        backspaces, typed = typer.apply_partial("hello world")
+        typer.apply_partial("hello wor")  # pending = "Hello wor"
+        backspaces, typed = typer.apply_partial("hello world")  # "Hello world"
         assert backspaces == 0
         assert typed == "ld"
 
     def test_partial_replaces_divergent_text(self, mock_type, mock_bs):
         typer = ProgressiveTyper()
-        typer.apply_partial("hello there")
-        backspaces, typed = typer.apply_partial("hello world")
+        typer.apply_partial("hello there")  # pending = "Hello there"
+        backspaces, typed = typer.apply_partial("hello world")  # "Hello world"
         assert backspaces == 5  # delete "there"
         assert typed == "world"
-        assert typer.displayed_text == "hello world"
+        assert typer.displayed_text == "Hello world"
 
     def test_partial_completely_replaces(self, mock_type, mock_bs):
         typer = ProgressiveTyper()
-        typer.apply_partial("foo")
-        backspaces, typed = typer.apply_partial("bar")
+        typer.apply_partial("foo")  # pending = "Foo"
+        backspaces, typed = typer.apply_partial("bar")  # "Bar"
         assert backspaces == 3
-        assert typed == "bar"
+        assert typed == "Bar"
 
     def test_partial_shortens_text(self, mock_type, mock_bs):
         typer = ProgressiveTyper()
-        typer.apply_partial("hello world")
-        backspaces, typed = typer.apply_partial("hello")
+        typer.apply_partial("hello world")  # pending = "Hello world"
+        backspaces, typed = typer.apply_partial("hello")  # "Hello"
         assert backspaces == 6  # delete " world"
         assert typed == ""
-        assert typer.displayed_text == "hello"
+        assert typer.displayed_text == "Hello"
 
 
 @patch("dictate.live.typer._send_backspaces")
 @patch("dictate.live.typer._type_text")
 class TestProgressiveTyperFinals:
-    def test_final_locks_text_with_trailing_space(self, mock_type, mock_bs):
+    def test_final_after_partial_only_adds_space(self, mock_type, mock_bs):
+        """Partial already capitalized, so final just adds trailing space."""
         typer = ProgressiveTyper()
         typer.apply_partial("hello")
-        typer.apply_final("hello world")
+        assert typer.pending == "Hello"
+        backspaces, typed = typer.apply_final("hello world")
+        assert backspaces == 0
+        assert typed == " world "
         assert typer.committed == "Hello world "
-        assert typer.pending == ""
         assert typer.displayed_text == "Hello world "
 
     def test_final_without_partial(self, mock_type, mock_bs):
@@ -118,24 +121,35 @@ class TestProgressiveTyperFinals:
         assert typer.committed == "Hello World "
         assert typer.displayed_text == "Hello World "
 
-    def test_partials_after_final_build_on_committed(self, mock_type, mock_bs):
+    def test_partials_after_final_capitalize_new_sentence(self, mock_type, mock_bs):
         typer = ProgressiveTyper()
         typer.apply_final("hello")
         assert typer.committed == "Hello "
 
-        # Next partial - Vosk doesn't include the committed prefix
+        # First partial of new sentence capitalizes
         backspaces, typed = typer.apply_partial("world")
         assert backspaces == 0
-        assert typed == "world"
-        assert typer.displayed_text == "Hello world"
+        assert typed == "World"
+        assert typer.displayed_text == "Hello World"
 
     def test_final_corrects_partial(self, mock_type, mock_bs):
         typer = ProgressiveTyper()
         typer.apply_partial("helo")
+        # Partial was capitalized to "Helo", final capitalizes to "Hello "
         backspaces, typed = typer.apply_final("hello")
-        assert backspaces == 4  # delete "helo", type "Hello "
-        assert typed == "Hello "
+        assert backspaces == 1  # delete "o" from "Helo" (common prefix "Hel")
+        assert typed == "lo "
         assert typer.committed == "Hello "
+
+    def test_case_insensitive_prefix_stripping(self, mock_type, mock_bs):
+        """Vosk may include previously committed text in lowercase."""
+        typer = ProgressiveTyper()
+        typer.apply_final("hello")
+        assert typer.committed == "Hello "
+        # Vosk sends "hello world" (lowercase prefix matching committed)
+        backspaces, typed = typer.apply_partial("hello world")
+        assert typed == "World"
+        assert typer.displayed_text == "Hello World"
 
 
 @patch("dictate.live.typer._send_backspaces")
@@ -143,20 +157,20 @@ class TestProgressiveTyperFinals:
 class TestProgressiveTyperXdotoolCalls:
     def test_no_xdotool_calls_when_nothing_changes(self, mock_type, mock_bs):
         typer = ProgressiveTyper()
-        typer.apply_partial("hello")
+        typer.apply_partial("hello")  # "Hello" on screen
         mock_type.reset_mock()
         mock_bs.reset_mock()
 
-        typer.apply_partial("hello")
+        typer.apply_partial("hello")  # same text, no change
         mock_bs.assert_not_called()
         mock_type.assert_not_called()
 
     def test_backspaces_sent_before_typing(self, mock_type, mock_bs):
         typer = ProgressiveTyper()
-        typer.apply_partial("abc")
+        typer.apply_partial("abc")  # "Abc" on screen
         mock_type.reset_mock()
         mock_bs.reset_mock()
 
-        typer.apply_partial("axyz")
+        typer.apply_partial("axyz")  # pending is "Abc", new is "axyz" (not capitalized since pending exists)
         mock_bs.assert_called_once_with(2)
         mock_type.assert_called_once_with("xyz")
