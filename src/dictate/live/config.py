@@ -4,8 +4,8 @@ import os
 
 # Whisper Model Configuration
 WHISPER_MODEL_SIZE = "base"
-WHISPER_DEVICE = "auto"
-WHISPER_COMPUTE_TYPE = "auto"
+WHISPER_DEVICE = "cpu"
+WHISPER_COMPUTE_TYPE = "int8"
 
 # Transcription Timing
 TRANSCRIBE_INTERVAL = 2  # seconds between transcription cycles
