@@ -45,6 +45,7 @@ dictate = "dictate.batch.cli:main"
 dictate-daemon = "dictate.batch.daemon:main"
 dictate-live = "dictate.live.cli:main"
 dictate-live-daemon = "dictate.live.daemon:main"
+dictate-stop = "dictate.stop:main"
 
 [project.urls]
 "Homepage" = "https://github.com/tnrzk13/voice-dictation"
