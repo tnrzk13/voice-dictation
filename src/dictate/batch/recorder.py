@@ -1,7 +1,6 @@
 """Audio recording with streaming transcription support."""
 
 import sys
-import time
 import queue
 import threading
 from typing import Any
@@ -14,10 +13,7 @@ from dictate.config import (
     CHUNK_DURATION,
     PROCESSING_TIMEOUT,
     DAEMON_POLL_INTERVAL,
-    SILENCE_THRESHOLD,
-    SILENCE_DURATION
 )
-from dictate.silence import SilenceDetector
 from dictate.system import notify
 
 from .client import DaemonClient
@@ -32,14 +28,8 @@ class StreamingAudioRecorder:
         chunk_duration: float = CHUNK_DURATION,
         streaming: bool = True,
         sample_rate: int = SAMPLE_RATE,
-        silence_threshold: float = SILENCE_THRESHOLD,
-        silence_duration: float = SILENCE_DURATION
     ):
         self.audio_queue: queue.Queue[NDArray[Any]] = queue.Queue()
-        self.detector = SilenceDetector(
-            threshold=silence_threshold,
-            silence_duration=silence_duration
-        )
         self.recording = True
         self.daemon_client = daemon_client
         self.chunk_duration = chunk_duration
@@ -56,15 +46,11 @@ class StreamingAudioRecorder:
         time_info: Any,
         status: sd.CallbackFlags
     ) -> None:
-        """Callback for audio stream - processes chunks and detects silence."""
+        """Callback for audio stream - queues audio chunks."""
         if status:
             print(f"Audio status: {status}", file=sys.stderr)
 
         self.audio_queue.put(indata.copy())
-
-        chunk_duration = frames / self.sample_rate
-        if self.detector.update(indata, chunk_duration):
-            self.recording = False
 
     def _send_chunk_for_transcription(self, audio_chunk: NDArray[Any]) -> None:
         """Send an audio chunk to daemon for transcription in background."""
@@ -100,7 +86,7 @@ class StreamingAudioRecorder:
             self.daemon_client.transcribe(audio_to_transcribe)
 
     def record(self) -> None:
-        """Record audio until silence detected, transcribing in chunks."""
+        """Record audio until Enter is pressed, transcribing in chunks."""
         notify("Dictation", "Recording started...")
 
         # Start processing thread
@@ -117,8 +103,9 @@ class StreamingAudioRecorder:
             dtype=np.float32,
             callback=self.audio_callback
         ):
-            while self.recording:
-                time.sleep(DAEMON_POLL_INTERVAL)
+            input("Recording... press Enter to stop.\n")
+
+        self.recording = False
 
         # Wait for processing to complete
         process_thread.join(timeout=PROCESSING_TIMEOUT)

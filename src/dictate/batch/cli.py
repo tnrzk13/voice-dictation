@@ -14,10 +14,8 @@ from dictate.system import notify, check_dependencies_or_exit
 from dictate.config import (
     SOCKET_PATH,
     PRE_RECORDING_DELAY,
-    SILENCE_THRESHOLD,
-    SILENCE_DURATION,
     CHUNK_DURATION,
-    SAMPLE_RATE
+    SAMPLE_RATE,
 )
 
 from .client import DaemonClient
@@ -27,22 +25,19 @@ from .recorder import StreamingAudioRecorder
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="Voice dictation with automatic pause detection",
+        description="Voice dictation - press Enter to stop recording",
         epilog="""
 Examples:
   %(prog)s                                    # Default streaming mode
   %(prog)s --stream                           # Explicit streaming mode
   %(prog)s --no-stream                        # Non-streaming mode
   %(prog)s --stop                             # Stop the daemon
-  %(prog)s --silence-threshold 0.02           # Less sensitive (louder sounds required)
-  %(prog)s --silence-duration 6               # Longer pause before stopping
   %(prog)s --chunk-duration 3                 # More responsive streaming
-  %(prog)s --silence-threshold 0.005 --silence-duration 2  # Quick, sensitive mode
 
 How it works:
   1. Run the script (starts recording after 2-second delay)
   2. Speak naturally into your microphone
-  3. Pause for 4 seconds (default) to stop recording
+  3. Press Enter to stop recording
   4. Text is typed at your cursor position
 
 Streaming vs Non-Streaming:
@@ -51,11 +46,6 @@ Streaming vs Non-Streaming:
 
   - Non-streaming (--no-stream): Records everything, then transcribes all at once.
     Good for short commands or when you want all text to appear together.
-
-Customization Tips:
-  - If it stops too early: increase --silence-duration or decrease --silence-threshold
-  - If it doesn't detect pauses: increase --silence-threshold
-  - For faster feedback: decrease --chunk-duration (streaming mode)
         """
     )
     parser.add_argument(
@@ -72,21 +62,6 @@ Customization Tips:
         "--stop",
         action="store_true",
         help="Stop the dictation daemon and free up memory"
-    )
-    parser.add_argument(
-        "--silence-threshold",
-        type=float,
-        default=SILENCE_THRESHOLD,
-        metavar="THRESHOLD",
-        help=f"RMS energy threshold for silence detection (default: {SILENCE_THRESHOLD}). "
-             "Lower values = more sensitive to sound. Range: 0.001-0.1"
-    )
-    parser.add_argument(
-        "--silence-duration",
-        type=int,
-        default=SILENCE_DURATION,
-        metavar="SECONDS",
-        help=f"Seconds of continuous silence before stopping recording (default: {SILENCE_DURATION})"
     )
     parser.add_argument(
         "--chunk-duration",
@@ -144,8 +119,6 @@ def main() -> None:
         chunk_duration=args.chunk_duration,
         streaming=streaming,
         sample_rate=args.sample_rate,
-        silence_threshold=args.silence_threshold,
-        silence_duration=args.silence_duration
     )
     recorder.record()
 

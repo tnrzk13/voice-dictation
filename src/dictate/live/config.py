@@ -2,11 +2,7 @@
 
 import os
 
-from dictate.config import SAMPLE_RATE, SILENCE_THRESHOLD
-
-# Live dictation uses a longer silence duration than batch mode since users
-# pause more naturally during continuous dictation.
-SILENCE_DURATION = 8
+from dictate.config import SAMPLE_RATE
 
 # Vosk Model Configuration
 VOSK_MODEL_NAME = "vosk-model-en-us-0.22"
@@ -24,8 +20,6 @@ LIVE_DAEMON_POLL_INTERVAL = 0.1
 # Re-export parent config values used by live modules
 __all__ = [
     "SAMPLE_RATE",
-    "SILENCE_THRESHOLD",
-    "SILENCE_DURATION",
     "VOSK_MODEL_NAME",
     "VOSK_MODEL_DIR",
     "LIVE_SOCKET_PATH",

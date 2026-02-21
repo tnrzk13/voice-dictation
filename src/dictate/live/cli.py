@@ -10,12 +10,7 @@ import sys
 from dictate.daemon_support import stop_daemon as _stop_daemon
 from dictate.system import check_dependencies_or_exit, notify
 
-from .config import (
-    LIVE_SOCKET_PATH,
-    SAMPLE_RATE,
-    SILENCE_DURATION,
-    SILENCE_THRESHOLD,
-)
+from .config import LIVE_SOCKET_PATH, SAMPLE_RATE
 
 
 def parse_args() -> argparse.Namespace:
@@ -27,20 +22,6 @@ def parse_args() -> argparse.Namespace:
         "--stop",
         action="store_true",
         help="Stop the live dictation daemon",
-    )
-    parser.add_argument(
-        "--silence-threshold",
-        type=float,
-        default=SILENCE_THRESHOLD,
-        metavar="THRESHOLD",
-        help=f"RMS energy threshold for silence detection (default: {SILENCE_THRESHOLD})",
-    )
-    parser.add_argument(
-        "--silence-duration",
-        type=int,
-        default=SILENCE_DURATION,
-        metavar="SECONDS",
-        help=f"Seconds of silence before stopping (default: {SILENCE_DURATION})",
     )
     parser.add_argument(
         "--sample-rate",
@@ -104,8 +85,6 @@ def _run_dictation(args: argparse.Namespace) -> None:
     recorder = LiveRecorder(
         client,
         sample_rate=args.sample_rate,
-        silence_threshold=args.silence_threshold,
-        silence_duration=args.silence_duration,
     )
     recorder.record()
 
