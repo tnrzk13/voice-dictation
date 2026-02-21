@@ -1,16 +1,10 @@
 """Tests for the live dictation streaming client."""
 
 import json
-import time
 from unittest.mock import MagicMock, patch
 
-from dictate.live.client import LiveDaemonClient, PARTIAL_DEBOUNCE_SECONDS
+from dictate.live.client import LiveDaemonClient
 from dictate.live.typer import ProgressiveTyper
-
-
-def _wait_for_debounce():
-    """Wait long enough for a debounced partial to fire."""
-    time.sleep(PARTIAL_DEBOUNCE_SECONDS + 0.05)
 
 
 class TestHandleMessage:
@@ -19,45 +13,14 @@ class TestHandleMessage:
         client = LiveDaemonClient(typer=typer)
         return client, typer
 
-    def test_first_partial_fires_immediately(self):
+    def test_routes_partial_to_typer(self):
         client, typer = self._make_client()
-        typer.pending = ""
         client._handle_message(json.dumps({"type": "partial", "text": "hel"}))
         typer.apply_partial.assert_called_once_with("hel")
 
-    def test_subsequent_partial_debounces(self):
-        client, typer = self._make_client()
-        typer.pending = "hel"  # something already on screen
-        client._handle_message(json.dumps({"type": "partial", "text": "hello"}))
-        typer.apply_partial.assert_not_called()
-        _wait_for_debounce()
-        typer.apply_partial.assert_called_once_with("hello")
-
-    def test_rapid_partials_only_apply_first_and_latest(self):
-        client, typer = self._make_client()
-        typer.pending = ""
-        client._handle_message(json.dumps({"type": "partial", "text": "h"}))
-        typer.apply_partial.assert_called_once_with("h")
-        # Now pending is non-empty, subsequent partials debounce
-        typer.pending = "h"
-        client._handle_message(json.dumps({"type": "partial", "text": "he"}))
-        client._handle_message(json.dumps({"type": "partial", "text": "hel"}))
-        _wait_for_debounce()
-        assert typer.apply_partial.call_count == 2
-        typer.apply_partial.assert_called_with("hel")
-
-    def test_routes_final_to_typer_immediately(self):
+    def test_routes_final_to_typer(self):
         client, typer = self._make_client()
         client._handle_message(json.dumps({"type": "final", "text": "hello"}))
-        typer.apply_final.assert_called_once_with("hello")
-
-    def test_final_cancels_pending_debounced_partial(self):
-        client, typer = self._make_client()
-        typer.pending = "h"  # simulate existing text so partial debounces
-        client._handle_message(json.dumps({"type": "partial", "text": "hel"}))
-        client._handle_message(json.dumps({"type": "final", "text": "hello"}))
-        _wait_for_debounce()
-        typer.apply_partial.assert_not_called()
         typer.apply_final.assert_called_once_with("hello")
 
     def test_end_signals_done(self):

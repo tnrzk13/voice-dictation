@@ -25,9 +25,6 @@ from .typer import ProgressiveTyper
 logger = logging.getLogger(__name__)
 
 
-PARTIAL_DEBOUNCE_SECONDS = 0.1
-
-
 class LiveDaemonClient:
     """Persistent streaming client for the live dictation daemon."""
 
@@ -36,8 +33,6 @@ class LiveDaemonClient:
         self._sock: Optional[socket.socket] = None
         self._receiver_thread: Optional[threading.Thread] = None
         self._done = threading.Event()
-        self._typer_lock = threading.Lock()
-        self._partial_timer: Optional[threading.Timer] = None
 
     @property
     def typer(self) -> ProgressiveTyper:
@@ -116,40 +111,11 @@ class LiveDaemonClient:
         text = msg.get("text", "")
 
         if msg_type == "partial":
-            self._debounce_partial(text)
-        elif msg_type == "final":
-            self._flush_partial_and_apply_final(text)
-        elif msg_type == "end":
-            self._cancel_pending_partial()
-            self._done.set()
-
-    def _debounce_partial(self, text: str) -> None:
-        """Apply immediately if nothing on screen, otherwise debounce."""
-        self._cancel_pending_partial()
-        if not self._typer.pending:
-            self._apply_partial(text)
-        else:
-            self._partial_timer = threading.Timer(
-                PARTIAL_DEBOUNCE_SECONDS, self._apply_partial, args=[text]
-            )
-            self._partial_timer.start()
-
-    def _apply_partial(self, text: str) -> None:
-        """Apply a partial result under lock."""
-        with self._typer_lock:
             self._typer.apply_partial(text)
-
-    def _flush_partial_and_apply_final(self, text: str) -> None:
-        """Cancel any pending partial and apply the final result."""
-        self._cancel_pending_partial()
-        with self._typer_lock:
+        elif msg_type == "final":
             self._typer.apply_final(text)
-
-    def _cancel_pending_partial(self) -> None:
-        """Cancel a scheduled partial if one exists."""
-        if self._partial_timer is not None:
-            self._partial_timer.cancel()
-            self._partial_timer = None
+        elif msg_type == "end":
+            self._done.set()
 
     @staticmethod
     def is_daemon_running() -> bool:
