@@ -121,6 +121,7 @@ def _transcribe_loop(
     segments and trims the buffer to keep transcription fast.
     """
     finalized_text = ""
+    last_partial_text = ""
     bytes_per_sample = 2  # int16
     bytes_per_second = SAMPLE_RATE * bytes_per_sample
 
@@ -137,6 +138,9 @@ def _transcribe_loop(
             continue
 
         display_text = (finalized_text + full_text).strip()
+        if display_text == last_partial_text:
+            continue
+        last_partial_text = display_text
         _send_message(connection, "partial", display_text)
 
         window_seconds = len(snapshot) / bytes_per_second
