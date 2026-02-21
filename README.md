@@ -60,7 +60,7 @@ dictate
 # Non-streaming - transcribes everything after you stop
 dictate --no-stream
 
-# Press Enter to stop recording
+# Press any key to stop recording
 ```
 
 ### Stopping daemons

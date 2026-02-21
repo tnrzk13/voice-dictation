@@ -3,6 +3,7 @@
 import sys
 import queue
 import threading
+import time
 from typing import Any
 import numpy as np
 from numpy.typing import NDArray
@@ -14,6 +15,7 @@ from dictate.config import (
     PROCESSING_TIMEOUT,
     DAEMON_POLL_INTERVAL,
 )
+from dictate.live.keyboard_monitor import KeyboardMonitor
 from dictate.system import notify
 
 from .client import DaemonClient
@@ -38,6 +40,16 @@ class StreamingAudioRecorder:
         self.accumulated_audio: list[NDArray[Any]] = []
         self.accumulated_samples = 0
         self.streaming = streaming
+        self._stop = threading.Event()
+        self._last_typed_at = 0.0
+
+    @property
+    def last_typed_at(self):
+        return self._last_typed_at
+
+    @last_typed_at.setter
+    def last_typed_at(self, value):
+        self._last_typed_at = value
 
     def _audio_callback(
         self,
@@ -63,6 +75,7 @@ class StreamingAudioRecorder:
                 if self.streaming and self.accumulated_samples >= self.chunk_samples:
                     audio_to_transcribe = np.concatenate(self.accumulated_audio, axis=0)
                     self.daemon_client.transcribe(audio_to_transcribe)
+                    self._last_typed_at = time.time()
                     self.accumulated_audio = []
                     self.accumulated_samples = 0
 
@@ -72,9 +85,10 @@ class StreamingAudioRecorder:
         if self.accumulated_audio:
             audio_to_transcribe = np.concatenate(self.accumulated_audio, axis=0)
             self.daemon_client.transcribe(audio_to_transcribe)
+            self._last_typed_at = time.time()
 
     def record(self) -> None:
-        """Record audio until Enter is pressed, transcribing in chunks."""
+        """Record audio until a key is pressed, transcribing in chunks."""
         notify("Dictation", "Recording started...")
 
         process_thread = threading.Thread(
@@ -83,13 +97,19 @@ class StreamingAudioRecorder:
         )
         process_thread.start()
 
-        with sd.InputStream(
-            samplerate=self.sample_rate,
-            channels=1,
-            dtype=np.float32,
-            callback=self._audio_callback
-        ):
-            input("Recording... press Enter to stop.\n")
+        monitor = KeyboardMonitor(self._stop, self)
+        monitor.start()
+
+        try:
+            with sd.InputStream(
+                samplerate=self.sample_rate,
+                channels=1,
+                dtype=np.float32,
+                callback=self._audio_callback
+            ):
+                self._stop.wait()
+        finally:
+            monitor.stop()
 
         self.recording = False
         process_thread.join(timeout=PROCESSING_TIMEOUT)
