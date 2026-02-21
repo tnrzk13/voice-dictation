@@ -124,12 +124,15 @@ class LiveDaemonClient:
             self._done.set()
 
     def _debounce_partial(self, text: str) -> None:
-        """Schedule a partial update, cancelling any pending one."""
+        """Apply immediately if nothing on screen, otherwise debounce."""
         self._cancel_pending_partial()
-        self._partial_timer = threading.Timer(
-            PARTIAL_DEBOUNCE_SECONDS, self._apply_partial, args=[text]
-        )
-        self._partial_timer.start()
+        if not self._typer.pending:
+            self._apply_partial(text)
+        else:
+            self._partial_timer = threading.Timer(
+                PARTIAL_DEBOUNCE_SECONDS, self._apply_partial, args=[text]
+            )
+            self._partial_timer.start()
 
     def _apply_partial(self, text: str) -> None:
         """Apply a partial result under lock."""
