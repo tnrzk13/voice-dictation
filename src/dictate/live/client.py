@@ -137,7 +137,7 @@ class LiveDaemonClient:
         """Start the daemon in the background."""
         from dictate.system import notify
 
-        notify("Dictation", "Starting daemon (loading Whisper model)...")
+        notify("Loading...")
 
         return start_daemon_process(
             entry_point="dictate-daemon",

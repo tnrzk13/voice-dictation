@@ -36,6 +36,6 @@ def check_dependencies_or_exit() -> None:
         sys.exit(1)
 
 
-def notify(title: str, message: str) -> None:
+def notify(message: str) -> None:
     """Show desktop notification."""
-    subprocess.run(["notify-send", title, message], check=False)
+    subprocess.run(["notify-send", message], check=False)

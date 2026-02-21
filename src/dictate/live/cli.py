@@ -65,7 +65,7 @@ def _ensure_daemon_running() -> None:
 
     if not LiveDaemonClient.is_daemon_running():
         if not LiveDaemonClient.start_daemon():
-            notify("Dictation Error", "Failed to start daemon")
+            notify("Failed to start")
             sys.exit(1)
 
 
@@ -75,8 +75,6 @@ def _run_dictation(args: argparse.Namespace) -> None:
 
     from .client import LiveDaemonClient
     from .recorder import LiveRecorder
-
-    notify("Dictation", "Recording started...")
 
     stop_event = threading.Event()
 

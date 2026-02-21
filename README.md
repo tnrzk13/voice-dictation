@@ -7,7 +7,7 @@ Linux voice dictation - speak into your mic, text appears at your cursor. Powere
 - **Real-time streaming**: Words appear and self-correct as you speak
 - **Daemon architecture**: Whisper model stays loaded in memory for fast transcription
 - **Desktop integration**: Types text directly at your cursor via `xdotool`
-- **Desktop notifications**: Visual feedback for recording status
+- **Desktop notifications**: Visual feedback for daemon loading and errors
 
 ## System Requirements
 

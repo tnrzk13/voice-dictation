@@ -122,7 +122,7 @@ def stop_daemon(
     except (OSError, PermissionError) as e:
         print(f"Warning: Could not remove socket file: {e}")
 
-    notify(f"{daemon_name} Daemon", "Stopped - memory freed")
+    notify("Stopped")
 
     if daemon_stopped or socket_existed:
         print(f"{daemon_name} daemon stopped")
