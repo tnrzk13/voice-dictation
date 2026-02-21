@@ -29,7 +29,8 @@ classifiers = [
 dependencies = [
     "numpy>=1.21.0",
     "sounddevice>=0.4.5",
-    "faster-whisper>=0.10.0"
+    "faster-whisper>=0.10.0",
+    "vosk>=0.3.45"
 ]
 
 [project.optional-dependencies]
@@ -42,6 +43,8 @@ dev = [
 [project.scripts]
 dictate = "dictate.cli:main"
 dictate-daemon = "dictate.daemon:main"
+dictate-live = "dictate.live.cli:main"
+dictate-live-daemon = "dictate.live.daemon:main"
 
 [project.urls]
 "Homepage" = "https://github.com/tnrzk13/voice-dictation"
