@@ -9,7 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 import sounddevice as sd
 
-from .config import (
+from dictate.config import (
     SAMPLE_RATE,
     CHUNK_DURATION,
     PROCESSING_TIMEOUT,
@@ -17,9 +17,10 @@ from .config import (
     SILENCE_THRESHOLD,
     SILENCE_DURATION
 )
-from .silence import SilenceDetector
+from dictate.silence import SilenceDetector
+from dictate.system import notify
+
 from .client import DaemonClient
-from .utils import notify
 
 
 class StreamingAudioRecorder:

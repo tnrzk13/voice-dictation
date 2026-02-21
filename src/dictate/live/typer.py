@@ -6,10 +6,9 @@ followed by new characters. On final result, locks text in so it won't
 be revised.
 """
 
-import subprocess
 from typing import List, Tuple
 
-from dictate.config import XDOTOOL_KEYSTROKE_DELAY
+from dictate.xdotool import type_text as _type_text, send_backspaces as _send_backspaces
 
 
 class ProgressiveTyper:
@@ -101,16 +100,3 @@ def _find_common_prefix_length(a: str, b: str) -> int:
     return limit
 
 
-def _send_backspaces(count: int) -> None:
-    """Send backspace key presses via xdotool."""
-    subprocess.run(
-        ["xdotool", "key", "--delay", "0"] + ["BackSpace"] * count, check=False
-    )
-
-
-def _type_text(text: str) -> None:
-    """Type text at cursor position via xdotool."""
-    subprocess.run(
-        ["xdotool", "type", "--delay", str(XDOTOOL_KEYSTROKE_DELAY), text],
-        check=False,
-    )

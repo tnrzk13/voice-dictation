@@ -7,13 +7,11 @@ on a background thread and routed to the ProgressiveTyper.
 
 import json
 import logging
-import os
 import socket
-import subprocess
-import sys
 import threading
-import time
 from typing import Optional
+
+from dictate.daemon_support import is_daemon_running, start_daemon_process
 
 from .config import (
     LIVE_DAEMON_POLL_INTERVAL,
@@ -120,40 +118,19 @@ class LiveDaemonClient:
     @staticmethod
     def is_daemon_running() -> bool:
         """Check if the live daemon socket exists."""
-        return os.path.exists(LIVE_SOCKET_PATH)
+        return is_daemon_running(LIVE_SOCKET_PATH)
 
     @staticmethod
     def start_daemon() -> bool:
         """Start the live daemon in the background."""
-        from dictate.utils import notify
+        from dictate.system import notify
 
         notify("Live Dictation", "Starting daemon (loading Vosk model)...")
 
-        try:
-            subprocess.Popen(
-                ["dictate-live-daemon"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-                env=os.environ.copy(),
-            )
-        except FileNotFoundError:
-            subprocess.Popen(
-                [sys.executable, "-m", "dictate.live.daemon"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-                env=os.environ.copy(),
-            )
-
-        return _wait_for_socket(LIVE_SOCKET_PATH, LIVE_DAEMON_STARTUP_TIMEOUT)
-
-
-def _wait_for_socket(path: str, timeout: float) -> bool:
-    """Poll until socket file appears or timeout expires."""
-    iterations = int(timeout / LIVE_DAEMON_POLL_INTERVAL)
-    for _ in range(iterations):
-        time.sleep(LIVE_DAEMON_POLL_INTERVAL)
-        if os.path.exists(path):
-            return True
-    return False
+        return start_daemon_process(
+            entry_point="dictate-live-daemon",
+            module_path="dictate.live.daemon",
+            socket_path=LIVE_SOCKET_PATH,
+            timeout=LIVE_DAEMON_STARTUP_TIMEOUT,
+            poll_interval=LIVE_DAEMON_POLL_INTERVAL,
+        )

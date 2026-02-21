@@ -11,7 +11,7 @@ SILENCE_THRESHOLD = 0.01  # RMS energy threshold for detecting silence (range: 0
                            # Higher values = less sensitive (requires louder sounds)
                            # Adjust based on your microphone and room noise level
 
-SILENCE_DURATION = 4  # seconds - Duration of continuous silence before stopping recording
+SILENCE_DURATION = 2  # seconds - Duration of continuous silence before stopping recording
                        # Increase if you need longer pauses while speaking
                        # Decrease for quicker stops after finishing dictation
 

@@ -41,8 +41,8 @@ dev = [
 ]
 
 [project.scripts]
-dictate = "dictate.cli:main"
-dictate-daemon = "dictate.daemon:main"
+dictate = "dictate.batch.cli:main"
+dictate-daemon = "dictate.batch.daemon:main"
 dictate-live = "dictate.live.cli:main"
 dictate-live-daemon = "dictate.live.daemon:main"
 

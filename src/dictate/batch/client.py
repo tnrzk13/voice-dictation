@@ -1,22 +1,21 @@
 """Daemon client for transcription requests."""
 
-import os
 import sys
-import time
 import socket
 import pickle
-import subprocess
 from typing import Callable, Optional, Any
 from numpy.typing import NDArray
 
-from .config import (
+from dictate.config import (
     SOCKET_PATH,
     DAEMON_STARTUP_TIMEOUT,
     RECV_BUFFER_SIZE,
     END_MARKER,
     DAEMON_POLL_INTERVAL
 )
-from .utils import notify, type_text
+from dictate.daemon_support import is_daemon_running, start_daemon_process
+from dictate.system import notify
+from dictate.xdotool import type_text
 
 
 class DaemonClient:
@@ -34,42 +33,20 @@ class DaemonClient:
     @staticmethod
     def is_running() -> bool:
         """Check if daemon is running."""
-        return os.path.exists(SOCKET_PATH)
+        return is_daemon_running(SOCKET_PATH)
 
     @staticmethod
     def start() -> bool:
         """Start the daemon in the background."""
         notify("Dictation", "Starting daemon (first use)...")
 
-        python_path = sys.executable
-
-        # Use the installed dictate-daemon command if available, otherwise fall back to module
-        try:
-            subprocess.Popen(
-                ["dictate-daemon"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-                env=os.environ.copy()
-            )
-        except FileNotFoundError:
-            # Fall back to python module execution
-            subprocess.Popen(
-                [python_path, "-m", "dictate.daemon"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-                env=os.environ.copy()
-            )
-
-        # Wait for daemon to be ready
-        timeout_iterations = int(DAEMON_STARTUP_TIMEOUT / DAEMON_POLL_INTERVAL)
-        for _ in range(timeout_iterations):
-            time.sleep(DAEMON_POLL_INTERVAL)
-            if os.path.exists(SOCKET_PATH):
-                return True
-
-        return False
+        return start_daemon_process(
+            entry_point="dictate-daemon",
+            module_path="dictate.batch.daemon",
+            socket_path=SOCKET_PATH,
+            timeout=DAEMON_STARTUP_TIMEOUT,
+            poll_interval=DAEMON_POLL_INTERVAL,
+        )
 
     def _send_audio(self, sock: socket.socket, audio: NDArray[Any]) -> None:
         """Send audio data to daemon via socket."""

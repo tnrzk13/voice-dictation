@@ -5,11 +5,10 @@ streaming transcription - words appear as you speak.
 """
 
 import argparse
-import os
-import subprocess
 import sys
 
-from dictate.utils import check_system_dependencies, notify
+from dictate.daemon_support import stop_daemon as _stop_daemon
+from dictate.system import check_dependencies_or_exit, notify
 
 from .config import (
     LIVE_SOCKET_PATH,
@@ -62,33 +61,11 @@ def parse_args() -> argparse.Namespace:
 
 def stop_daemon() -> None:
     """Stop the live dictation daemon and clean up."""
-    daemon_stopped = False
-
-    for pattern in ["dictate.live.daemon", "dictate-live-daemon"]:
-        try:
-            result = subprocess.run(
-                ["pkill", "-f", pattern],
-                check=False,
-                capture_output=True,
-            )
-            if result.returncode == 0:
-                daemon_stopped = True
-        except (FileNotFoundError, subprocess.SubprocessError):
-            pass
-
-    socket_existed = os.path.exists(LIVE_SOCKET_PATH)
-    try:
-        if socket_existed:
-            os.remove(LIVE_SOCKET_PATH)
-    except (OSError, PermissionError) as e:
-        print(f"Warning: Could not remove socket file: {e}")
-
-    notify("Live Dictation Daemon", "Stopped - memory freed")
-
-    if daemon_stopped or socket_existed:
-        print("Live dictation daemon stopped")
-    else:
-        print("No live daemon was running")
+    _stop_daemon(
+        socket_path=LIVE_SOCKET_PATH,
+        pkill_patterns=["dictate.live.daemon", "dictate-live-daemon"],
+        daemon_name="Live Dictation",
+    )
 
 
 def main() -> None:
@@ -99,19 +76,9 @@ def main() -> None:
         stop_daemon()
         return
 
-    _check_dependencies()
+    check_dependencies_or_exit()
     _ensure_daemon_running()
     _run_dictation(args)
-
-
-def _check_dependencies() -> None:
-    """Verify system dependencies are available."""
-    deps_ok, missing = check_system_dependencies()
-    if not deps_ok:
-        print("Error: Missing required system dependencies:", file=sys.stderr)
-        for dep in missing:
-            print(f"  - {dep}", file=sys.stderr)
-        sys.exit(1)
 
 
 def _ensure_daemon_running() -> None:

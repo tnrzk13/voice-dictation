@@ -1,10 +1,9 @@
-"""Utility functions for voice dictation."""
+"""System utilities - dependency checks and desktop notifications."""
 
 import shutil
 import subprocess
+import sys
 from typing import List, Tuple
-
-from .config import XDOTOOL_KEYSTROKE_DELAY
 
 
 def check_system_dependencies() -> Tuple[bool, List[str]]:
@@ -27,14 +26,16 @@ def check_system_dependencies() -> Tuple[bool, List[str]]:
     return len(missing) == 0, missing
 
 
+def check_dependencies_or_exit() -> None:
+    """Check system dependencies and exit with actionable error if any are missing."""
+    deps_ok, missing = check_system_dependencies()
+    if not deps_ok:
+        print("Error: Missing required system dependencies:", file=sys.stderr)
+        for dep in missing:
+            print(f"  - {dep}", file=sys.stderr)
+        sys.exit(1)
+
+
 def notify(title: str, message: str) -> None:
     """Show desktop notification."""
     subprocess.run(["notify-send", title, message], check=False)
-
-
-def type_text(text: str) -> None:
-    """Type text at cursor position using xdotool."""
-    subprocess.run(
-        ["xdotool", "type", "--delay", str(XDOTOOL_KEYSTROKE_DELAY), text],
-        check=False
-    )

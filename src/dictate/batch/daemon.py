@@ -2,37 +2,19 @@
 Dictation daemon - keeps Whisper model loaded in memory for fast transcription.
 Run this once on system startup to keep model ready.
 """
-import os
-import sys
-import socket
 import pickle
 import logging
-from pathlib import Path
+
 import numpy as np
 from faster_whisper import WhisperModel
 
-from .config import SOCKET_PATH, SAMPLE_RATE, DAEMON_LOG, END_MARKER, DAEMON_RECV_BUFFER_SIZE
-
-
-def setup_logging() -> None:
-    """Configure logging for daemon."""
-    # Ensure log directory exists
-    log_path = Path(DAEMON_LOG)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(DAEMON_LOG),
-            logging.StreamHandler(sys.stderr)
-        ]
-    )
+from dictate.config import SOCKET_PATH, SAMPLE_RATE, DAEMON_LOG, END_MARKER, DAEMON_RECV_BUFFER_SIZE
+from dictate.daemon_support import setup_daemon_logging, create_daemon_socket
 
 
 def main() -> None:
     """Main daemon entry point."""
-    setup_logging()
+    setup_daemon_logging(DAEMON_LOG)
 
     logging.info("Loading Whisper model...")
     model = WhisperModel(
@@ -42,17 +24,7 @@ def main() -> None:
     )
     logging.info(f"Model loaded! Listening on {SOCKET_PATH}")
 
-    # Remove existing socket if present
-    try:
-        os.unlink(SOCKET_PATH)
-    except FileNotFoundError:
-        pass
-
-    # Create Unix domain socket
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.bind(SOCKET_PATH)
-    sock.listen(1)
-
+    sock = create_daemon_socket(SOCKET_PATH)
     logging.info("Ready for dictation requests!")
 
     while True:

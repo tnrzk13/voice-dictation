@@ -18,7 +18,12 @@ import logging
 import os
 import socket
 import sys
-from pathlib import Path
+
+from dictate.daemon_support import (
+    cleanup_socket,
+    create_daemon_socket,
+    setup_daemon_logging,
+)
 
 from .config import (
     LIVE_DAEMON_LOG,
@@ -27,21 +32,6 @@ from .config import (
     VOSK_MODEL_DIR,
     VOSK_MODEL_NAME,
 )
-
-
-def setup_logging() -> None:
-    """Configure daemon logging to file and stderr."""
-    log_path = Path(LIVE_DAEMON_LOG)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.FileHandler(LIVE_DAEMON_LOG),
-            logging.StreamHandler(sys.stderr),
-        ],
-    )
 
 
 def load_vosk_model():
@@ -128,11 +118,10 @@ def _send_message(connection: socket.socket, msg_type: str, text: str) -> None:
 
 def main() -> None:
     """Main daemon entry point - load model and listen for connections."""
-    setup_logging()
+    setup_daemon_logging(LIVE_DAEMON_LOG)
     model = load_vosk_model()
 
-    _cleanup_stale_socket()
-    sock = _create_listening_socket()
+    sock = create_daemon_socket(LIVE_SOCKET_PATH)
     logging.info(f"Live daemon ready on {LIVE_SOCKET_PATH}")
 
     try:
@@ -141,23 +130,7 @@ def main() -> None:
         logging.info("Daemon shutting down.")
     finally:
         sock.close()
-        _cleanup_stale_socket()
-
-
-def _cleanup_stale_socket() -> None:
-    """Remove existing socket file if present."""
-    try:
-        os.unlink(LIVE_SOCKET_PATH)
-    except FileNotFoundError:
-        pass
-
-
-def _create_listening_socket() -> socket.socket:
-    """Create and bind the Unix domain socket."""
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.bind(LIVE_SOCKET_PATH)
-    sock.listen(1)
-    return sock
+        cleanup_socket(LIVE_SOCKET_PATH)
 
 
 def _accept_connections(sock: socket.socket, model) -> None:

@@ -5,16 +5,13 @@ Command-line interface for voice dictation.
 Dictation client - records audio with pause detection and sends to daemon for transcription.
 Supports streaming transcription for long recording sessions.
 """
-import os
 import sys
 import time
 import argparse
-import subprocess
 
-from .client import DaemonClient
-from .recorder import StreamingAudioRecorder
-from .utils import notify, check_system_dependencies
-from .config import (
+from dictate.daemon_support import stop_daemon as _stop_daemon
+from dictate.system import notify, check_dependencies_or_exit
+from dictate.config import (
     SOCKET_PATH,
     PRE_RECORDING_DELAY,
     SILENCE_THRESHOLD,
@@ -22,6 +19,9 @@ from .config import (
     CHUNK_DURATION,
     SAMPLE_RATE
 )
+
+from .client import DaemonClient
+from .recorder import StreamingAudioRecorder
 
 
 def parse_args() -> argparse.Namespace:
@@ -107,48 +107,11 @@ Customization Tips:
 
 def stop_daemon() -> None:
     """Stop the dictation daemon process and clean up socket."""
-    daemon_stopped = False
-
-    # Try to kill the daemon process
-    # First try dictate.daemon (Python module invocation)
-    try:
-        result = subprocess.run(
-            ["pkill", "-f", "dictate.daemon"],
-            check=False,
-            capture_output=True
-        )
-        if result.returncode == 0:
-            daemon_stopped = True
-    except (FileNotFoundError, subprocess.SubprocessError):
-        pass  # pkill not available or other subprocess error
-
-    # Also try dictate-daemon (entry point invocation)
-    try:
-        result = subprocess.run(
-            ["pkill", "-f", "dictate-daemon"],
-            check=False,
-            capture_output=True
-        )
-        if result.returncode == 0:
-            daemon_stopped = True
-    except (FileNotFoundError, subprocess.SubprocessError):
-        pass  # pkill not available or other subprocess error
-
-    # Remove the socket file
-    socket_existed = os.path.exists(SOCKET_PATH)
-    try:
-        if socket_existed:
-            os.remove(SOCKET_PATH)
-    except (OSError, PermissionError) as e:
-        print(f"Warning: Could not remove socket file: {e}")
-
-    # Notify user
-    notify("Dictation Daemon", "Stopped - memory freed")
-
-    if daemon_stopped or socket_existed:
-        print("Dictation daemon stopped")
-    else:
-        print("No daemon was running")
+    _stop_daemon(
+        socket_path=SOCKET_PATH,
+        pkill_patterns=["dictate.batch.daemon", "dictate-daemon"],
+        daemon_name="Dictation",
+    )
 
 
 def main() -> None:
@@ -160,13 +123,7 @@ def main() -> None:
         stop_daemon()
         return
 
-    # Check system dependencies before starting
-    deps_ok, missing = check_system_dependencies()
-    if not deps_ok:
-        print("Error: Missing required system dependencies:", file=sys.stderr)
-        for dep in missing:
-            print(f"  - {dep}", file=sys.stderr)
-        sys.exit(1)
+    check_dependencies_or_exit()
 
     # Determine streaming mode (default is True)
     streaming = not args.no_stream
