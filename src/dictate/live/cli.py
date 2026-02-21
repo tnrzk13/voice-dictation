@@ -1,6 +1,6 @@
 """Command-line interface for live streaming dictation.
 
-Entry point for the `dictate-live` command. Uses Vosk for real-time
+Entry point for the `dictate-live` command. Uses Whisper for real-time
 streaming transcription - words appear as you speak.
 """
 
@@ -10,7 +10,9 @@ import sys
 from dictate.daemon_support import stop_daemon as _stop_daemon
 from dictate.system import check_dependencies_or_exit, notify
 
-from .config import LIVE_SOCKET_PATH, SAMPLE_RATE
+from .config import LIVE_SOCKET_PATH
+
+from dictate.config import SAMPLE_RATE
 
 
 def parse_args() -> argparse.Namespace:
@@ -29,13 +31,6 @@ def parse_args() -> argparse.Namespace:
         default=SAMPLE_RATE,
         metavar="RATE",
         help=f"Audio sample rate in Hz (default: {SAMPLE_RATE})",
-    )
-    parser.add_argument(
-        "--model",
-        type=str,
-        default=None,
-        metavar="NAME",
-        help="Vosk model name (default: vosk-model-en-us-0.22)",
     )
     return parser.parse_args()
 

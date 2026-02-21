@@ -30,14 +30,9 @@ dependencies = [
     "numpy>=1.21.0",
     "sounddevice>=0.4.5",
     "faster-whisper>=0.10.0",
-    "vosk>=0.3.45"
 ]
 
 [project.optional-dependencies]
-punctuation = [
-    "torch>=2.0",
-    "transformers>=4.0",
-]
 dev = [
     "pytest>=7.0",
     "black>=22.0",

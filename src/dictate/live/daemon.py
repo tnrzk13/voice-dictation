@@ -1,9 +1,12 @@
-"""
-Live dictation daemon - keeps Vosk model loaded for streaming transcription.
+"""Live dictation daemon - keeps Whisper model loaded for streaming transcription.
 
 Receives raw PCM int16 audio frames over a persistent socket connection,
-feeds them to Vosk's KaldiRecognizer, and streams back partial/final results
-as newline-delimited JSON.
+accumulates them into an audio buffer, and periodically transcribes with
+faster-whisper. Streams back partial/final results as newline-delimited JSON.
+
+Architecture:
+  - Receiver thread: reads raw PCM bytes from socket, appends to shared buffer
+  - Transcriber thread: every ~2s, transcribes accumulated audio with Whisper
 
 Protocol:
   Client sends: raw PCM int16 bytes (continuous stream)
@@ -15,115 +18,181 @@ Protocol:
 
 import json
 import logging
-import os
 import socket
 import sys
+import threading
 
+import numpy as np
+
+from dictate.config import SAMPLE_RATE
 from dictate.daemon_support import (
     cleanup_socket,
     create_daemon_socket,
     setup_daemon_logging,
 )
 
-from dictate.punctuation import try_load_punctuation
-
 from .config import (
     LIVE_DAEMON_LOG,
     LIVE_SOCKET_PATH,
-    RECASEPUNC_MODEL_DIR,
-    SAMPLE_RATE,
-    VOSK_MODEL_DIR,
-    VOSK_MODEL_NAME,
+    MAX_WINDOW_SECONDS,
+    TRANSCRIBE_INTERVAL,
+    WHISPER_COMPUTE_TYPE,
+    WHISPER_DEVICE,
+    WHISPER_MODEL_SIZE,
 )
 
 
-def load_vosk_model():
-    """Load Vosk model, failing fast with download instructions if missing."""
+def _load_whisper_model():
+    """Load faster-whisper model, failing fast if unavailable."""
     try:
-        from vosk import Model, SetLogLevel
+        from faster_whisper import WhisperModel
     except ImportError:
         logging.error(
-            "vosk package not installed. Install with: pip install vosk>=0.3.45"
+            "faster-whisper package not installed. "
+            "Install with: pip install faster-whisper>=0.10.0"
         )
         sys.exit(1)
 
-    SetLogLevel(-1)  # Suppress Vosk's noisy internal logging
-
-    model_path = os.path.join(VOSK_MODEL_DIR, VOSK_MODEL_NAME)
-    if not os.path.isdir(model_path):
-        logging.error(
-            f"Vosk model not found at {model_path}\n"
-            f"Download it with: scripts/download-model.sh\n"
-            f"Or manually:\n"
-            f"  mkdir -p {VOSK_MODEL_DIR}\n"
-            f"  cd {VOSK_MODEL_DIR}\n"
-            f"  wget https://alphacephei.com/vosk/models/{VOSK_MODEL_NAME}.zip\n"
-            f"  unzip {VOSK_MODEL_NAME}.zip"
-        )
-        sys.exit(1)
-
-    logging.info(f"Loading Vosk model from {model_path}...")
-    model = Model(model_path)
-    logging.info("Vosk model loaded.")
+    logging.info(f"Loading Whisper model ({WHISPER_MODEL_SIZE})...")
+    model = WhisperModel(
+        WHISPER_MODEL_SIZE,
+        device=WHISPER_DEVICE,
+        compute_type=WHISPER_COMPUTE_TYPE,
+    )
+    logging.info("Whisper model loaded.")
     return model
 
 
-def _create_recognizer(model):
-    """Create a KaldiRecognizer from the loaded Vosk model."""
-    from vosk import KaldiRecognizer
+def handle_client(connection: socket.socket, model) -> None:
+    """Process a single client's streaming audio session.
 
-    recognizer = KaldiRecognizer(model, SAMPLE_RATE)
-    recognizer.SetWords(False)
-    return recognizer
+    Spawns a receiver thread to collect audio and runs the transcription
+    loop on the current thread.
+    """
+    audio_buffer = bytearray()
+    buffer_lock = threading.Lock()
+    client_done = threading.Event()
 
-
-def handle_client(connection: socket.socket, model, punctuator=None, recognizer=None) -> None:
-    """Process a single client's streaming audio session."""
-    if recognizer is None:
-        recognizer = _create_recognizer(model)
+    receiver = threading.Thread(
+        target=_receive_audio,
+        args=(connection, audio_buffer, buffer_lock, client_done),
+        daemon=True,
+    )
+    receiver.start()
 
     try:
-        while True:
-            data = connection.recv(8000)  # ~250ms of int16 audio at 16kHz
-            if not data:
-                break
-
-            if recognizer.AcceptWaveform(data):
-                result = json.loads(recognizer.Result())
-                text = result.get("text", "").strip()
-                if text:
-                    text = _apply_punctuation(punctuator, text)
-                    _send_message(connection, "final", text)
-            else:
-                partial = json.loads(recognizer.PartialResult())
-                text = partial.get("partial", "").strip()
-                if text:
-                    _send_message(connection, "partial", text)
-
-        # Flush any remaining audio
-        result = json.loads(recognizer.FinalResult())
-        text = result.get("text", "").strip()
-        if text:
-            text = _apply_punctuation(punctuator, text)
-            _send_message(connection, "final", text)
-
-        _send_message(connection, "end", "")
-
+        _transcribe_loop(connection, model, audio_buffer, buffer_lock, client_done)
     except (ConnectionResetError, BrokenPipeError) as e:
         logging.warning(f"Client disconnected: {e}")
     except Exception as e:
         logging.error(f"Error handling client: {e}", exc_info=True)
 
 
-def _apply_punctuation(punctuator, text: str) -> str:
-    """Apply punctuation restoration if available, falling back to raw text."""
-    if punctuator is None:
-        return text
+def _receive_audio(
+    connection: socket.socket,
+    audio_buffer: bytearray,
+    buffer_lock: threading.Lock,
+    client_done: threading.Event,
+) -> None:
+    """Receiver thread: read raw PCM bytes from socket into shared buffer."""
     try:
-        return punctuator.restore(text)
-    except Exception as e:
-        logging.warning(f"Punctuation restoration failed: {e}")
-        return text
+        while True:
+            data = connection.recv(8000)
+            if not data:
+                break
+            with buffer_lock:
+                audio_buffer.extend(data)
+    except (ConnectionResetError, BrokenPipeError, OSError):
+        pass
+    finally:
+        client_done.set()
+
+
+def _transcribe_loop(
+    connection: socket.socket,
+    model,
+    audio_buffer: bytearray,
+    buffer_lock: threading.Lock,
+    client_done: threading.Event,
+) -> None:
+    """Transcription loop: periodically transcribe accumulated audio.
+
+    When the audio window exceeds MAX_WINDOW_SECONDS, finalizes completed
+    segments and trims the buffer to keep transcription fast.
+    """
+    finalized_text = ""
+    bytes_per_sample = 2  # int16
+    bytes_per_second = SAMPLE_RATE * bytes_per_sample
+
+    while not client_done.is_set():
+        client_done.wait(timeout=TRANSCRIBE_INTERVAL)
+
+        with buffer_lock:
+            if not audio_buffer:
+                continue
+            snapshot = bytes(audio_buffer)
+
+        full_text = _transcribe_audio(model, snapshot)
+        if not full_text:
+            continue
+
+        display_text = (finalized_text + full_text).strip()
+        _send_message(connection, "partial", display_text)
+
+        window_seconds = len(snapshot) / bytes_per_second
+        if window_seconds > MAX_WINDOW_SECONDS:
+            finalized_text, bytes_trimmed = _finalize_segments(
+                model, snapshot, finalized_text, bytes_per_second
+            )
+            if bytes_trimmed > 0:
+                with buffer_lock:
+                    del audio_buffer[:bytes_trimmed]
+
+    # Final transcription of remaining audio
+    with buffer_lock:
+        snapshot = bytes(audio_buffer)
+
+    if snapshot:
+        final_text = _transcribe_audio(model, snapshot)
+        if final_text:
+            text = (finalized_text + final_text).strip()
+            _send_message(connection, "final", text)
+
+    _send_message(connection, "end", "")
+
+
+def _finalize_segments(model, snapshot, finalized_text, bytes_per_second):
+    """Finalize completed segments and return trim info.
+
+    Transcribes with segment timestamps, finalizes all but the last segment
+    (which may be incomplete), and returns how many bytes to trim from the
+    front of the audio buffer.
+    """
+    segments = _transcribe_segments(model, snapshot)
+    if len(segments) <= 1:
+        return finalized_text, 0
+
+    for seg in segments[:-1]:
+        finalized_text += seg["text"]
+
+    last_start = segments[-1]["start"]
+    bytes_trimmed = int(last_start * bytes_per_second)
+    bytes_trimmed -= bytes_trimmed % 2  # align to int16 boundary
+    return finalized_text, bytes_trimmed
+
+
+def _transcribe_audio(model, audio_bytes: bytes) -> str:
+    """Transcribe raw PCM int16 bytes, returning the full text."""
+    audio = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+    segments, _ = model.transcribe(audio, language="en", beam_size=1)
+    return "".join(seg.text for seg in segments)
+
+
+def _transcribe_segments(model, audio_bytes: bytes) -> list:
+    """Transcribe and return segment dicts with text, start, end times."""
+    audio = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+    segments, _ = model.transcribe(audio, language="en", beam_size=1)
+    return [{"text": seg.text, "start": seg.start, "end": seg.end} for seg in segments]
 
 
 def _send_message(connection: socket.socket, msg_type: str, text: str) -> None:
@@ -135,14 +204,13 @@ def _send_message(connection: socket.socket, msg_type: str, text: str) -> None:
 def main() -> None:
     """Main daemon entry point - load model and listen for connections."""
     setup_daemon_logging(LIVE_DAEMON_LOG)
-    model = load_vosk_model()
-    punctuator = try_load_punctuation(RECASEPUNC_MODEL_DIR)
+    model = _load_whisper_model()
 
     sock = create_daemon_socket(LIVE_SOCKET_PATH)
     logging.info(f"Live daemon ready on {LIVE_SOCKET_PATH}")
 
     try:
-        _accept_connections(sock, model, punctuator)
+        _accept_connections(sock, model)
     except KeyboardInterrupt:
         logging.info("Daemon shutting down.")
     finally:
@@ -150,14 +218,14 @@ def main() -> None:
         cleanup_socket(LIVE_SOCKET_PATH)
 
 
-def _accept_connections(sock: socket.socket, model, punctuator=None) -> None:
+def _accept_connections(sock: socket.socket, model) -> None:
     """Accept client connections in a loop."""
     while True:
         connection = None
         try:
             connection, _ = sock.accept()
             logging.info("Client connected.")
-            handle_client(connection, model, punctuator)
+            handle_client(connection, model)
             logging.info("Client session ended.")
         except OSError as e:
             logging.error(f"Socket error: {e}")

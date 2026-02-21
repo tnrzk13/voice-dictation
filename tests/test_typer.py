@@ -167,22 +167,22 @@ class TestProgressiveTyperFinals:
         assert typer.committed == "Hello "
 
     def test_case_insensitive_prefix_stripping(self, mock_type, mock_bs):
-        """Vosk may include previously committed text in lowercase."""
+        """Partial result may include previously committed text in lowercase."""
         typer = ProgressiveTyper()
         typer.apply_final("hello")
         assert typer.committed == "Hello "
-        # Vosk sends "hello world" (lowercase prefix matching committed)
+        # Partial sends "hello world" (lowercase prefix matching committed)
         backspaces, typed = typer.apply_partial("hello world")
         assert typed == "World"
         assert typer.displayed_text == "Hello World"
 
     def test_prefix_stripping_ignores_punctuation_in_committed(self, mock_type, mock_bs):
-        """Committed text may have punctuation from recasepunc, but Vosk sends raw."""
+        """Committed text may have punctuation, but partials may not."""
         typer = ProgressiveTyper()
         # Simulate a punctuated final being committed
         typer._committed = "Hello, world. "
         typer._pending = ""
-        # Vosk sends next partial without punctuation
+        # Next partial arrives without punctuation
         backspaces, typed = typer.apply_partial("hello world this is new")
         assert typed == "This is new"
         assert typer.displayed_text == "Hello, world. This is new"

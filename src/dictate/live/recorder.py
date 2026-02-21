@@ -13,8 +13,9 @@ import numpy as np
 from numpy.typing import NDArray
 import sounddevice as sd
 
+from dictate.config import SAMPLE_RATE
+
 from .client import LiveDaemonClient
-from .config import SAMPLE_RATE
 
 
 class LiveRecorder:

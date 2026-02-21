@@ -1,1 +1,1 @@
-"""Live streaming voice dictation using Vosk for real-time transcription."""
+"""Live streaming voice dictation using Whisper for real-time transcription."""

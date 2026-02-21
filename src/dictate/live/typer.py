@@ -62,8 +62,8 @@ class ProgressiveTyper:
     def _strip_committed_prefix(self, text: str) -> str:
         """Remove the committed portion from the beginning of new text.
 
-        Uses word-based comparison so punctuation in committed text
-        (from recasepunc) doesn't break matching against Vosk's raw output.
+        Uses word-based comparison so punctuation differences don't
+        break matching against partial results.
         """
         committed_words = _strip_punctuation(self._committed).split()
         if not committed_words:
@@ -112,7 +112,7 @@ _PUNCTUATION_RE = re.compile(r"[,.\?!]")
 
 
 def _strip_punctuation(text: str) -> str:
-    """Remove punctuation marks that recasepunc may have added."""
+    """Remove punctuation marks for word-based prefix comparison."""
     return _PUNCTUATION_RE.sub("", text)
 
 

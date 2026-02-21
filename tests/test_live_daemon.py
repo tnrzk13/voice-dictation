@@ -1,7 +1,8 @@
 """Tests for the live dictation daemon message protocol."""
 
 import json
-from unittest.mock import MagicMock
+import time
+from unittest.mock import MagicMock, patch
 
 from dictate.live.daemon import _send_message, handle_client
 
@@ -35,22 +36,27 @@ class TestSendMessage:
         assert sent.endswith(b"\n")
 
 
-def _make_recognizer(accept_results=None, partial_text="", final_text=""):
-    """Create a mock recognizer with configurable behavior.
+def _make_segment(text=" Hello world.", start=0.0, end=1.0):
+    """Create a mock Whisper segment with .text, .start, .end attributes."""
+    seg = MagicMock()
+    seg.text = text
+    seg.start = start
+    seg.end = end
+    return seg
+
+
+def _make_whisper_model(segments=None):
+    """Create a mock Whisper model returning fresh segment iterators per call.
 
     Args:
-        accept_results: List of bools for AcceptWaveform return values.
-        partial_text: Text returned by PartialResult.
-        final_text: Text returned by FinalResult (end-of-stream flush).
+        segments: List of mock segments to return from transcribe().
+                  Defaults to a single segment with " Hello world."
     """
-    recognizer = MagicMock()
-    if accept_results is not None:
-        recognizer.AcceptWaveform.side_effect = accept_results
-    else:
-        recognizer.AcceptWaveform.return_value = False
-    recognizer.PartialResult.return_value = json.dumps({"partial": partial_text})
-    recognizer.FinalResult.return_value = json.dumps({"text": final_text})
-    return recognizer
+    if segments is None:
+        segments = [_make_segment()]
+    model = MagicMock()
+    model.transcribe.side_effect = lambda *a, **kw: (iter(list(segments)), None)
+    return model
 
 
 def _parse_sent_messages(conn):
@@ -63,75 +69,75 @@ def _parse_sent_messages(conn):
 
 
 class TestHandleClient:
-    def test_sends_final_on_accepted_waveform(self):
-        recognizer = _make_recognizer(accept_results=[True, False])
-        recognizer.Result.return_value = json.dumps({"text": "hello world"})
-        recognizer.PartialResult.return_value = json.dumps({"partial": ""})
-
-        conn = MagicMock()
-        conn.recv.side_effect = [b"\x00" * 8000, b"\x00" * 8000, b""]
-
-        handle_client(conn, model=None, recognizer=recognizer)
-
-        messages = _parse_sent_messages(conn)
-        types = [m["type"] for m in messages]
-        assert "final" in types
-        assert "end" in types
-
+    @patch("dictate.live.daemon.TRANSCRIBE_INTERVAL", 0.01)
     def test_sends_partial_results(self):
-        recognizer = _make_recognizer(partial_text="hel")
+        """Transcription during the session produces partial messages."""
+        model = _make_whisper_model([_make_segment(" Hello world.")])
 
         conn = MagicMock()
-        conn.recv.side_effect = [b"\x00" * 8000, b""]
+        audio = b"\x00" * 8000
+        calls = []
 
-        handle_client(conn, model=None, recognizer=recognizer)
+        def recv_with_delay(size):
+            calls.append(1)
+            if len(calls) == 1:
+                return audio
+            # Block receiver so transcriber can run at least one cycle
+            time.sleep(0.1)
+            return b""
+
+        conn.recv.side_effect = recv_with_delay
+
+        handle_client(conn, model)
 
         messages = _parse_sent_messages(conn)
         partials = [m for m in messages if m["type"] == "partial"]
         assert len(partials) >= 1
-        assert partials[0]["text"] == "hel"
+        assert "Hello world." in partials[0]["text"]
 
-    def test_sends_end_marker_on_completion(self):
-        recognizer = _make_recognizer()
+    def test_sends_final_on_eof(self):
+        """Final transcription is sent when the client finishes."""
+        model = _make_whisper_model([_make_segment(" Final words.")])
 
         conn = MagicMock()
-        conn.recv.return_value = b""
+        conn.recv.side_effect = [b"\x00" * 8000, b""]
 
-        handle_client(conn, model=None, recognizer=recognizer)
+        handle_client(conn, model)
+
+        messages = _parse_sent_messages(conn)
+        finals = [m for m in messages if m["type"] == "final"]
+        assert any("Final words." in m["text"] for m in finals)
+
+    def test_sends_end_on_completion(self):
+        """End marker is always the last message sent."""
+        model = _make_whisper_model()
+
+        conn = MagicMock()
+        conn.recv.side_effect = [b"\x00" * 8000, b""]
+
+        handle_client(conn, model)
 
         messages = _parse_sent_messages(conn)
         assert messages[-1]["type"] == "end"
 
-    def test_flushes_remaining_audio_on_eof(self):
-        recognizer = _make_recognizer(final_text="final words")
+    def test_skips_empty_transcription(self):
+        """No partial/final messages are sent when Whisper returns nothing."""
+        model = _make_whisper_model([])
 
         conn = MagicMock()
         conn.recv.side_effect = [b"\x00" * 8000, b""]
 
-        handle_client(conn, model=None, recognizer=recognizer)
+        handle_client(conn, model)
 
         messages = _parse_sent_messages(conn)
-        finals = [m for m in messages if m["type"] == "final"]
-        assert any(m["text"] == "final words" for m in finals)
-
-    def test_skips_empty_text(self):
-        recognizer = _make_recognizer(accept_results=[True])
-        recognizer.Result.return_value = json.dumps({"text": ""})
-
-        conn = MagicMock()
-        conn.recv.side_effect = [b"\x00" * 8000, b""]
-
-        handle_client(conn, model=None, recognizer=recognizer)
-
-        messages = _parse_sent_messages(conn)
-        # Only end marker should appear - no empty finals/partials
-        assert all(m["type"] == "end" or m["text"] for m in messages)
+        assert all(m["type"] == "end" for m in messages)
 
     def test_handles_client_disconnect(self):
-        recognizer = MagicMock()
+        """Daemon handles abrupt client disconnection without crashing."""
+        model = _make_whisper_model()
 
         conn = MagicMock()
         conn.recv.side_effect = ConnectionResetError("client gone")
 
         # Should not raise
-        handle_client(conn, model=None, recognizer=recognizer)
+        handle_client(conn, model)
