@@ -136,7 +136,7 @@ def _transcribe_loop(
         if not full_text:
             continue
 
-        display_text = (finalized_text + full_text).strip()
+        display_text = _concat_transcriptions(finalized_text, full_text)
         if display_text == last_partial_text:
             continue
         last_partial_text = display_text
@@ -158,7 +158,7 @@ def _transcribe_loop(
     if snapshot:
         final_text = _transcribe_audio(model, snapshot)
         if final_text:
-            text = (finalized_text + final_text).strip()
+            text = _concat_transcriptions(finalized_text, final_text)
             _send_message(connection, "final", text)
 
     _send_message(connection, "end", "")
@@ -182,6 +182,21 @@ def _finalize_segments(model, snapshot, finalized_text, bytes_per_second):
     bytes_trimmed = int(last_start * bytes_per_second)
     bytes_trimmed -= bytes_trimmed % 2  # align to int16 boundary
     return finalized_text, bytes_trimmed
+
+
+def _concat_transcriptions(finalized: str, new: str) -> str:
+    """Join finalized and new transcription text, ensuring word separation.
+
+    Whisper's first segment in a transcription has no leading space, so after
+    buffer trimming and re-transcription, the new text may lack a separator.
+    """
+    finalized = finalized.strip()
+    new = new.strip()
+    if not finalized:
+        return new
+    if not new:
+        return finalized
+    return finalized + " " + new
 
 
 def _pcm_to_float32(audio_bytes: bytes) -> np.ndarray:
