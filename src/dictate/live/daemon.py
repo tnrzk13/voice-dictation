@@ -32,6 +32,7 @@ from dictate.config import (
     TRANSCRIBE_INTERVAL,
     WHISPER_COMPUTE_TYPE,
     WHISPER_DEVICE,
+    WHISPER_HOTWORDS,
     WHISPER_MODEL_SIZE,
 )
 from dictate.daemon_support import (
@@ -207,14 +208,14 @@ def _pcm_to_float32(audio_bytes: bytes) -> np.ndarray:
 def _transcribe_audio(model, audio_bytes: bytes) -> str:
     """Transcribe raw PCM int16 bytes, returning the full text."""
     audio = _pcm_to_float32(audio_bytes)
-    segments, _ = model.transcribe(audio, language="en", beam_size=1)
+    segments, _ = model.transcribe(audio, language="en", beam_size=1, hotwords=WHISPER_HOTWORDS)
     return "".join(seg.text for seg in segments)
 
 
 def _transcribe_segments(model, audio_bytes: bytes) -> list:
     """Transcribe and return segment dicts with text, start, end times."""
     audio = _pcm_to_float32(audio_bytes)
-    segments, _ = model.transcribe(audio, language="en", beam_size=1)
+    segments, _ = model.transcribe(audio, language="en", beam_size=1, hotwords=WHISPER_HOTWORDS)
     return [{"text": seg.text, "start": seg.start, "end": seg.end} for seg in segments]
 
 

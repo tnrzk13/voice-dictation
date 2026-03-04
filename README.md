@@ -86,6 +86,7 @@ Streaming settings are also in `src/dictate/config.py`:
 ```python
 TRANSCRIBE_INTERVAL = 2   # seconds between transcription cycles
 MAX_WINDOW_SECONDS = 20   # finalize segments when audio exceeds this
+WHISPER_HOTWORDS = "Claude Code"  # space-separated terms Whisper often mishears
 ```
 
 ## Architecture

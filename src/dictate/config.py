@@ -14,6 +14,9 @@ WHISPER_COMPUTE_TYPE = "int8"
 TRANSCRIBE_INTERVAL = 2  # seconds between transcription cycles
 MAX_WINDOW_SECONDS = 20  # finalize segments when audio exceeds this length
 
+# Vocabulary hints - bias Whisper toward domain-specific terms it often mishears
+WHISPER_HOTWORDS = "Claude Code Jira"
+
 # Daemon
 SOCKET_PATH = "/tmp/dictate-live-daemon.sock"
 DAEMON_LOG = os.path.expanduser("~/.local/share/voice-dictation/live-daemon.log")
