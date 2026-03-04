@@ -176,7 +176,7 @@ def _finalize_segments(model, snapshot, finalized_text, bytes_per_second):
         return finalized_text, 0
 
     for seg in segments[:-1]:
-        finalized_text += seg["text"]
+        finalized_text = _concat_transcriptions(finalized_text, seg["text"])
 
     last_start = segments[-1]["start"]
     bytes_trimmed = int(last_start * bytes_per_second)
