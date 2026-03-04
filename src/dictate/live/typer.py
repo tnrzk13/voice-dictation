@@ -10,6 +10,7 @@ import re
 import time
 from typing import Tuple
 
+from dictate.config import BACKSPACE_SETTLE_DELAY
 from dictate.xdotool import type_text as _type_text, send_backspaces as _send_backspaces
 
 
@@ -92,6 +93,8 @@ class ProgressiveTyper:
             self.last_typed_at = time.time()
         if backspaces > 0:
             _send_backspaces(backspaces)
+        if backspaces > 0 and to_type:
+            time.sleep(BACKSPACE_SETTLE_DELAY)
         if to_type:
             _type_text(to_type)
         if backspaces > 0 or to_type:

@@ -1,6 +1,6 @@
 """Tests for ProgressiveTyper diff-based text correction."""
 
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from dictate.live.typer import (
     ProgressiveTyper,
@@ -219,3 +219,37 @@ class TestProgressiveTyperXdotoolCalls:
         typer.apply_partial("axyz")  # pending is "Abc", new is "axyz" (not capitalized since pending exists)
         mock_bs.assert_called_once_with(2)
         mock_type.assert_called_once_with("xyz")
+
+
+@patch("dictate.live.typer._send_backspaces")
+@patch("dictate.live.typer._type_text")
+@patch("dictate.live.typer.time")
+class TestBackspaceSettleDelay:
+    def test_sleeps_between_backspaces_and_typing(self, mock_time, mock_type, mock_bs):
+        """When both backspaces and typing are needed, a settle delay is inserted."""
+        mock_time.time.return_value = 1000.0
+        typer = ProgressiveTyper()
+        typer._pending = "Hello there"
+        typer._execute_edit(5, "world")
+
+        mock_bs.assert_called_once_with(5)
+        mock_time.sleep.assert_called_once_with(0.05)
+        mock_type.assert_called_once_with("world")
+
+    def test_no_sleep_when_only_backspaces(self, mock_time, mock_type, mock_bs):
+        mock_time.time.return_value = 1000.0
+        typer = ProgressiveTyper()
+        typer._execute_edit(3, "")
+
+        mock_bs.assert_called_once_with(3)
+        mock_time.sleep.assert_not_called()
+        mock_type.assert_not_called()
+
+    def test_no_sleep_when_only_typing(self, mock_time, mock_type, mock_bs):
+        mock_time.time.return_value = 1000.0
+        typer = ProgressiveTyper()
+        typer._execute_edit(0, "hello")
+
+        mock_bs.assert_not_called()
+        mock_time.sleep.assert_not_called()
+        mock_type.assert_called_once_with("hello")
