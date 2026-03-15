@@ -146,24 +146,10 @@ def _transcribe_loop(
         window_seconds = len(snapshot) / BYTES_PER_SECOND
         if window_seconds > MAX_WINDOW_SECONDS:
             finalized_text, bytes_trimmed = _finalize_completed_segments(
-                segments, finalized_text
+                segments, finalized_text, len(snapshot)
             )
-            if bytes_trimmed > 0:
-                with buffer_lock:
-                    del audio_buffer[:bytes_trimmed]
-            else:
-                # Single segment - force-finalize to prevent unbounded
-                # buffer growth. Trim everything we've transcribed; audio
-                # arriving during the next cycle provides natural context.
-                finalized_text = _concat_transcriptions(finalized_text, full_text)
-                trim_bytes = len(snapshot)
-                trim_bytes -= trim_bytes % BYTES_PER_SAMPLE  # align to int16 boundary
-                with buffer_lock:
-                    del audio_buffer[:trim_bytes]
-                logging.info(
-                    f"Force-trimmed buffer: {window_seconds:.1f}s -> 0s "
-                    "(single segment)"
-                )
+            with buffer_lock:
+                del audio_buffer[:bytes_trimmed]
 
     # Final transcription of remaining audio
     with buffer_lock:
@@ -179,22 +165,27 @@ def _transcribe_loop(
     _send_message(connection, "end", "")
 
 
-def _finalize_completed_segments(segments, finalized_text):
-    """Finalize completed segments and return trim info.
+def _finalize_completed_segments(segments, finalized_text, snapshot_bytes):
+    """Finalize segments and return how many bytes to trim from the buffer.
 
-    Finalizes all but the last segment (which may be incomplete) and returns
-    how many bytes to trim from the front of the audio buffer.
+    Multi-segment: finalizes all but the last (in-progress) segment, trims
+    the completed portion. Single segment: force-finalizes everything to
+    cap buffer growth - audio arriving next cycle provides natural context.
     """
     if len(segments) <= 1:
-        return finalized_text, 0
+        for seg in segments:
+            finalized_text = _concat_transcriptions(finalized_text, seg["text"])
+        trim_bytes = snapshot_bytes - (snapshot_bytes % BYTES_PER_SAMPLE)
+        logging.info("Force-trimmed buffer (single segment)")
+        return finalized_text, trim_bytes
 
     for seg in segments[:-1]:
         finalized_text = _concat_transcriptions(finalized_text, seg["text"])
 
     last_start = segments[-1]["start"]
-    bytes_trimmed = int(last_start * BYTES_PER_SECOND)
-    bytes_trimmed -= bytes_trimmed % BYTES_PER_SAMPLE
-    return finalized_text, bytes_trimmed
+    trim_bytes = int(last_start * BYTES_PER_SECOND)
+    trim_bytes -= trim_bytes % BYTES_PER_SAMPLE
+    return finalized_text, trim_bytes
 
 
 def _concat_transcriptions(finalized: str, new: str) -> str:

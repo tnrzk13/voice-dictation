@@ -223,6 +223,42 @@ class TestProgressiveTyperXdotoolCalls:
 
 @patch("dictate.live.typer._send_backspaces")
 @patch("dictate.live.typer._type_text")
+class TestIsTypingFlag:
+    def test_is_typing_true_during_xdotool_calls(self, mock_type, mock_bs):
+        """is_typing is True while xdotool subprocess is running."""
+        typer = ProgressiveTyper()
+        observed = []
+
+        def capture_flag(text):
+            observed.append(typer.is_typing)
+
+        mock_type.side_effect = capture_flag
+        typer._execute_edit(0, "hello")
+
+        assert observed == [True]
+        assert typer.is_typing is False
+
+    def test_is_typing_false_after_exception(self, mock_type, mock_bs):
+        """is_typing resets to False even if xdotool raises."""
+        typer = ProgressiveTyper()
+        mock_type.side_effect = OSError("xdotool crashed")
+
+        try:
+            typer._execute_edit(0, "hello")
+        except OSError:
+            pass
+
+        assert typer.is_typing is False
+
+    def test_is_typing_false_when_nothing_to_do(self, mock_type, mock_bs):
+        """is_typing stays False when there's no edit to perform."""
+        typer = ProgressiveTyper()
+        typer._execute_edit(0, "")
+        assert typer.is_typing is False
+
+
+@patch("dictate.live.typer._send_backspaces")
+@patch("dictate.live.typer._type_text")
 @patch("dictate.live.typer.time")
 class TestBackspaceSettleDelay:
     def test_sleeps_between_backspaces_and_typing(self, mock_time, mock_type, mock_bs):

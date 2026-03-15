@@ -100,7 +100,7 @@ class TestFinalizeCompletedSegments:
             {"text": "we can", "start": 0.0, "end": 5.0},
             {"text": "do it", "start": 5.0, "end": 10.0},
         ]
-        finalized, _ = _finalize_completed_segments(segments, "")
+        finalized, _ = _finalize_completed_segments(segments, "", 320000)
         assert finalized == "we can"
 
     def test_accumulates_across_multiple_trims(self):
@@ -109,22 +109,22 @@ class TestFinalizeCompletedSegments:
             {"text": "we can", "start": 0.0, "end": 5.0},
             {"text": "do", "start": 5.0, "end": 7.0},
         ]
-        finalized, _ = _finalize_completed_segments(segments1, "")
+        finalized, _ = _finalize_completed_segments(segments1, "", 224000)
         assert finalized == "we can"
 
         segments2 = [
             {"text": "do it", "start": 0.0, "end": 3.0},
             {"text": "now", "start": 3.0, "end": 5.0},
         ]
-        finalized, _ = _finalize_completed_segments(segments2, finalized)
+        finalized, _ = _finalize_completed_segments(segments2, finalized, 160000)
         assert finalized == "we can do it"
 
-    def test_single_segment_no_finalization(self):
-        """With only one segment, nothing is finalized."""
+    def test_single_segment_force_finalizes(self):
+        """Single segment is force-finalized to cap buffer growth."""
         segments = [{"text": "hello", "start": 0.0, "end": 5.0}]
-        finalized, bytes_trimmed = _finalize_completed_segments(segments, "")
-        assert finalized == ""
-        assert bytes_trimmed == 0
+        finalized, bytes_trimmed = _finalize_completed_segments(segments, "", 64000)
+        assert finalized == "hello"
+        assert bytes_trimmed == 64000
 
     def test_bytes_trimmed_aligned_to_int16(self):
         """Trimmed bytes are aligned to 2-byte int16 boundary."""
@@ -132,7 +132,7 @@ class TestFinalizeCompletedSegments:
             {"text": "hello", "start": 0.0, "end": 1.0},
             {"text": "world", "start": 1.5, "end": 3.0},
         ]
-        _, bytes_trimmed = _finalize_completed_segments(segments, "")
+        _, bytes_trimmed = _finalize_completed_segments(segments, "", 96000)
         assert bytes_trimmed % 2 == 0
         assert bytes_trimmed == 48000  # 1.5 * 32000 = 48000
 

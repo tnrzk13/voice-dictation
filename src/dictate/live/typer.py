@@ -21,6 +21,7 @@ class ProgressiveTyper:
         self._committed = ""  # Finalized text - won't change
         self._pending = ""  # Currently displayed partial - may be revised
         self.last_typed_at: float = 0.0
+        self.is_typing: bool = False
 
     @property
     def committed(self) -> str:
@@ -89,18 +90,19 @@ class ProgressiveTyper:
 
     def _execute_edit(self, backspaces: int, to_type: str) -> None:
         """Send backspaces and type new text via xdotool."""
-        if backspaces > 0 or to_type:
-            # Pre-set so KeyboardMonitor ignores synthetic xdotool keypresses
-            # that arrive before the post-set on the last line.
+        if not (backspaces > 0 or to_type):
+            return
+        self.is_typing = True
+        try:
+            if backspaces > 0:
+                _send_backspaces(backspaces)
+            if backspaces > 0 and to_type:
+                time.sleep(BACKSPACE_SETTLE_DELAY)
+            if to_type:
+                _type_text(to_type)
+        finally:
             self.last_typed_at = time.time()
-        if backspaces > 0:
-            _send_backspaces(backspaces)
-        if backspaces > 0 and to_type:
-            time.sleep(BACKSPACE_SETTLE_DELAY)
-        if to_type:
-            _type_text(to_type)
-        if backspaces > 0 or to_type:
-            self.last_typed_at = time.time()
+            self.is_typing = False
 
 
 def _capitalize_first(text: str) -> str:

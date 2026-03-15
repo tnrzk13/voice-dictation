@@ -39,6 +39,8 @@ class KeyboardMonitor:
         if key in _ALWAYS_STOP_KEYS:
             self._stop_event.set()
             return
+        if self._typer.is_typing:
+            return
         elapsed = time.time() - self._typer.last_typed_at
         if elapsed > XDOTOOL_GRACE_PERIOD:
             self._stop_event.set()
