@@ -144,11 +144,23 @@ class TestGeneralSymbols:
     def test_apostrophe(self):
         assert apply_formatting_commands("don apostrophe t") == "don't"
 
+    def test_apostrophe_s(self):
+        assert apply_formatting_commands("Tony apostrophe s") == "Tony's"
+
     def test_exclamation_short(self):
         assert apply_formatting_commands("wow exclamation") == "wow!"
 
+    def test_full_stop(self):
+        assert apply_formatting_commands("hello full stop") == "hello."
+
     def test_en_dash(self):
         assert apply_formatting_commands("he en dash she thought en dash left") == "he - she thought - left"
+
+    def test_em_dash(self):
+        assert apply_formatting_commands("hello em dash world") == "hello--world"
+
+    def test_bullet_point(self):
+        assert apply_formatting_commands("bullet point item") == "• item"
 
     def test_degree_sign(self):
         assert apply_formatting_commands("100 degree sign") == "100°"
@@ -156,18 +168,82 @@ class TestGeneralSymbols:
     def test_number_sign(self):
         assert apply_formatting_commands("number sign 1") == "#1"
 
+    def test_hashtag(self):
+        assert apply_formatting_commands("hashtag blessed") == "#blessed"
+
     def test_pound_sign(self):
         assert apply_formatting_commands("pound sign 50") == "£50"
 
     def test_euro_sign(self):
         assert apply_formatting_commands("euro sign 50") == "€50"
 
+    def test_cent_sign(self):
+        assert apply_formatting_commands("99 cent sign") == "99¢"
+
+    def test_yen_sign(self):
+        assert apply_formatting_commands("yen sign 1000") == "¥1000"
+
     def test_copyright_sign(self):
         assert apply_formatting_commands("copyright sign 2024") == "© 2024"
+
+    def test_registered_sign(self):
+        assert apply_formatting_commands("Acme registered sign") == "Acme®"
+
+    def test_trademark_sign(self):
+        assert apply_formatting_commands("Brand trademark sign") == "Brand™"
+
+    def test_multiplication_sign(self):
+        assert apply_formatting_commands("3 multiplication sign 4") == "3 × 4"
+
+    def test_division_sign(self):
+        assert apply_formatting_commands("10 division sign 2") == "10 ÷ 2"
+
+    def test_greater_than_sign(self):
+        assert apply_formatting_commands("x greater than sign y") == "x > y"
+
+    def test_less_than_sign(self):
+        assert apply_formatting_commands("x less than sign y") == "x < y"
 
     def test_percent_attaches_before(self):
         """Percent should attach to number: '50%' not '50 % done'."""
         assert apply_formatting_commands("50 percent sign complete") == "50% complete"
+
+
+class TestEmoticons:
+    def test_smiley_face(self):
+        assert apply_formatting_commands("hello smiley face") == "hello :-)"
+
+    def test_happy_face(self):
+        assert apply_formatting_commands("hello happy face") == "hello :-)"
+
+    def test_frowny_face(self):
+        assert apply_formatting_commands("hello frowny face") == "hello :-("
+
+    def test_sad_face(self):
+        assert apply_formatting_commands("hello sad face") == "hello :-("
+
+    def test_winky_face(self):
+        assert apply_formatting_commands("hello winky face") == "hello ;-)"
+
+    def test_wink_face(self):
+        assert apply_formatting_commands("hello wink face") == "hello ;-)"
+
+
+class TestAliases:
+    def test_forward_slash(self):
+        assert apply_formatting_commands("a forward slash b") == "a/b"
+
+    def test_begin_end_quote(self):
+        assert apply_formatting_commands("begin quote hello end quote") == '"hello"'
+
+    def test_begin_end_single_quote(self):
+        assert apply_formatting_commands("begin single quote hi end single quote") == "'hi'"
+
+    def test_left_right_parenthesis(self):
+        assert apply_formatting_commands("left parenthesis x right parenthesis") == "(x)"
+
+    def test_left_right_bracket(self):
+        assert apply_formatting_commands("left bracket 0 right bracket") == "[0]"
 
 
 class TestPluralAliases:
