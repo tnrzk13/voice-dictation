@@ -89,6 +89,17 @@ class TestSendAudio:
         client = LiveDaemonClient()
         client.send_audio(b"\x00" * 100)  # Should not raise
 
+    def test_drops_audio_after_stop_event(self):
+        """send_audio stops writing to socket once stop_event is set."""
+        stop = threading.Event()
+        client = LiveDaemonClient(stop_event=stop)
+        client._sock = MagicMock()
+
+        stop.set()
+        client.send_audio(b"\x00" * 3200)
+
+        client._sock.sendall.assert_not_called()
+
 
 class TestFinish:
     def test_shuts_down_write_side(self):
