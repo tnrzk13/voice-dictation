@@ -1,6 +1,7 @@
 """Tests for the live dictation streaming client."""
 
 import json
+import threading
 from unittest.mock import MagicMock, patch
 
 from dictate.live.client import LiveDaemonClient
@@ -32,6 +33,17 @@ class TestHandleMessage:
     def test_ignores_invalid_json(self):
         client, typer = self._make_client()
         client._handle_message("not json at all")
+        typer.apply_partial.assert_not_called()
+        typer.apply_final.assert_not_called()
+
+    def test_all_messages_suppressed_after_stop_event(self):
+        """Partials and finals are suppressed after stop - text is already on screen."""
+        client, typer = self._make_client()
+        stop = threading.Event()
+        stop.set()
+        client._stop_event = stop
+        client._handle_message(json.dumps({"type": "partial", "text": "hello"}))
+        client._handle_message(json.dumps({"type": "final", "text": "hello"}))
         typer.apply_partial.assert_not_called()
         typer.apply_final.assert_not_called()
 

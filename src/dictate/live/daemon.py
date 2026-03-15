@@ -151,16 +151,20 @@ def _transcribe_loop(
             with buffer_lock:
                 del audio_buffer[:bytes_trimmed]
 
-    # Final transcription of remaining audio
-    with buffer_lock:
-        snapshot = bytes(audio_buffer)
-
-    if snapshot:
-        segments = _transcribe(model, snapshot)
-        final_text = "".join(seg["text"] for seg in segments)
-        if final_text:
-            text = _concat_transcriptions(finalized_text, final_text)
-            _send_message(connection, "final", text)
+    # Use last partial as the final when available - avoids re-running
+    # Whisper inference which adds 2-5s latency on CPU. Fall back to
+    # re-transcription only for sessions too short to produce a partial.
+    if last_partial_text:
+        _send_message(connection, "final", last_partial_text)
+    else:
+        with buffer_lock:
+            snapshot = bytes(audio_buffer)
+        if snapshot:
+            segments = _transcribe(model, snapshot)
+            final_text = "".join(seg["text"] for seg in segments)
+            if final_text:
+                text = _concat_transcriptions(finalized_text, final_text)
+                _send_message(connection, "final", text)
 
     _send_message(connection, "end", "")
 

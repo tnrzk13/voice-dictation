@@ -259,6 +259,36 @@ class TestIsTypingFlag:
 
 @patch("dictate.live.typer._send_backspaces")
 @patch("dictate.live.typer._type_text")
+class TestFormattingIntegration:
+    def test_final_applies_formatting_and_capitalization(self, mock_type, mock_bs):
+        typer = ProgressiveTyper()
+        backspaces, typed = typer.apply_final("tony slash pictures")
+        assert backspaces == 0
+        assert typed == "Tony/pictures "
+        assert typer.committed == "Tony/pictures "
+
+    def test_final_formatting_with_punctuation(self, mock_type, mock_bs):
+        typer = ProgressiveTyper()
+        backspaces, typed = typer.apply_final("hello period")
+        assert backspaces == 0
+        assert typed == "Hello. "
+        assert typer.committed == "Hello. "
+
+    def test_final_formatting_new_line(self, mock_type, mock_bs):
+        typer = ProgressiveTyper()
+        backspaces, typed = typer.apply_final("hello new line world")
+        assert backspaces == 0
+        assert typed == "Hello\nworld "
+
+    def test_final_whisper_period_dedup(self, mock_type, mock_bs):
+        """Whisper auto-period + spoken 'period' collapses to single period."""
+        typer = ProgressiveTyper()
+        backspaces, typed = typer.apply_final("hello. period")
+        assert typed == "Hello. "
+
+
+@patch("dictate.live.typer._send_backspaces")
+@patch("dictate.live.typer._type_text")
 @patch("dictate.live.typer.time")
 class TestBackspaceSettleDelay:
     def test_sleeps_between_backspaces_and_typing(self, mock_time, mock_type, mock_bs):

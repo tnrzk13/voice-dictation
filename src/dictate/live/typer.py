@@ -11,6 +11,7 @@ import time
 from typing import Tuple
 
 from dictate.config import BACKSPACE_SETTLE_DELAY
+from dictate.live.formatting import apply_formatting_commands
 from dictate.xdotool import type_text as _type_text, send_backspaces as _send_backspaces
 
 
@@ -42,6 +43,7 @@ class ProgressiveTyper:
             Tuple of (backspaces_needed, text_to_type) for the display update.
         """
         new_pending = self._strip_committed_prefix(text)
+        new_pending = apply_formatting_commands(new_pending)
         new_pending = _capitalize_first(new_pending)
         backspaces, to_type = self._compute_edit(self._pending, new_pending)
         self._pending = new_pending
@@ -55,6 +57,7 @@ class ProgressiveTyper:
             Tuple of (backspaces_needed, text_to_type) for the display update.
         """
         new_pending = self._strip_committed_prefix(text)
+        new_pending = apply_formatting_commands(new_pending)
         capitalized = _capitalize_first(new_pending)
         spaced = capitalized + " "
         backspaces, to_type = self._compute_edit(self._pending, spaced)
