@@ -111,7 +111,7 @@ class TestProgrammingSymbols:
         assert apply_formatting_commands("dollar sign HOME") == "$HOME"
 
     def test_percent_sign(self):
-        assert apply_formatting_commands("100 percent sign done") == "100%done"
+        assert apply_formatting_commands("100 percent sign done") == "100% done"
 
     def test_caret(self):
         assert apply_formatting_commands("x caret 2") == "x^2"
@@ -138,6 +138,36 @@ class TestNewlines:
 
     def test_tab_key(self):
         assert apply_formatting_commands("hello tab key world") == "hello\tworld"
+
+
+class TestGeneralSymbols:
+    def test_apostrophe(self):
+        assert apply_formatting_commands("don apostrophe t") == "don't"
+
+    def test_exclamation_short(self):
+        assert apply_formatting_commands("wow exclamation") == "wow!"
+
+    def test_en_dash(self):
+        assert apply_formatting_commands("he en dash she thought en dash left") == "he - she thought - left"
+
+    def test_degree_sign(self):
+        assert apply_formatting_commands("100 degree sign") == "100°"
+
+    def test_number_sign(self):
+        assert apply_formatting_commands("number sign 1") == "#1"
+
+    def test_pound_sign(self):
+        assert apply_formatting_commands("pound sign 50") == "£50"
+
+    def test_euro_sign(self):
+        assert apply_formatting_commands("euro sign 50") == "€50"
+
+    def test_copyright_sign(self):
+        assert apply_formatting_commands("copyright sign 2024") == "© 2024"
+
+    def test_percent_attaches_before(self):
+        """Percent should attach to number: '50%' not '50 % done'."""
+        assert apply_formatting_commands("50 percent sign complete") == "50% complete"
 
 
 class TestPluralAliases:

@@ -33,6 +33,7 @@ FORMATTING_COMMANDS: List[FormattingCommand] = sorted(
         # Punctuation
         FormattingCommand("exclamation mark", "!", SpacingRule.REMOVE_BEFORE),
         FormattingCommand("exclamation point", "!", SpacingRule.REMOVE_BEFORE),
+        FormattingCommand("exclamation", "!", SpacingRule.REMOVE_BEFORE),
         FormattingCommand("question mark", "?", SpacingRule.REMOVE_BEFORE),
         FormattingCommand("period", ".", SpacingRule.REMOVE_BEFORE),
         FormattingCommand("dot", ".", SpacingRule.REMOVE_BEFORE),
@@ -40,6 +41,7 @@ FORMATTING_COMMANDS: List[FormattingCommand] = sorted(
         FormattingCommand("colon", ":", SpacingRule.REMOVE_BEFORE),
         FormattingCommand("semicolon", ";", SpacingRule.REMOVE_BEFORE),
         FormattingCommand("ellipsis", "...", SpacingRule.REMOVE_BEFORE),
+        FormattingCommand("apostrophe", "'", SpacingRule.REMOVE_BOTH),
         # Brackets
         FormattingCommand("open parenthesis", "(", SpacingRule.REMOVE_AFTER),
         FormattingCommand("close parenthesis", ")", SpacingRule.REMOVE_BEFORE),
@@ -65,14 +67,21 @@ FORMATTING_COMMANDS: List[FormattingCommand] = sorted(
         FormattingCommand("hyphen", "-", SpacingRule.REMOVE_BOTH),
         FormattingCommand("dash", "-", SpacingRule.REMOVE_BOTH),
         FormattingCommand("underscore", "_", SpacingRule.REMOVE_BOTH),
-        # Programming symbols
+        # Symbols - general
+        FormattingCommand("en dash", " - ", SpacingRule.REMOVE_BOTH),
+        FormattingCommand("degree sign", "°", SpacingRule.REMOVE_BEFORE),
+        FormattingCommand("number sign", "#", SpacingRule.REMOVE_AFTER),
+        FormattingCommand("pound sign", "£", SpacingRule.REMOVE_AFTER),
+        FormattingCommand("euro sign", "€", SpacingRule.REMOVE_AFTER),
+        FormattingCommand("copyright sign", "©", SpacingRule.DEFAULT),
+        # Symbols - programming
         FormattingCommand("equals sign", "=", SpacingRule.DEFAULT),
         FormattingCommand("plus sign", "+", SpacingRule.DEFAULT),
         FormattingCommand("minus sign", "-", SpacingRule.DEFAULT),
         FormattingCommand("at sign", "@", SpacingRule.REMOVE_BOTH),
         FormattingCommand("hash sign", "#", SpacingRule.REMOVE_AFTER),
         FormattingCommand("dollar sign", "$", SpacingRule.REMOVE_AFTER),
-        FormattingCommand("percent sign", "%", SpacingRule.REMOVE_BOTH),
+        FormattingCommand("percent sign", "%", SpacingRule.REMOVE_BEFORE),
         FormattingCommand("caret", "^", SpacingRule.REMOVE_BOTH),
         FormattingCommand("ampersand", "&", SpacingRule.DEFAULT),
         FormattingCommand("asterisk", "*", SpacingRule.REMOVE_BOTH),
