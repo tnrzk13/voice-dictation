@@ -7,8 +7,7 @@ streaming transcription - words appear as you speak.
 import argparse
 import sys
 
-from dictate.config import SAMPLE_RATE, SOCKET_PATH
-from dictate.daemon_support import stop_daemon as _stop_daemon
+from dictate.config import SAMPLE_RATE
 from dictate.system import check_dependencies_or_exit, notify
 
 
@@ -39,11 +38,9 @@ def parse_args() -> argparse.Namespace:
 
 def stop_daemon() -> None:
     """Stop the dictation daemon and clean up."""
-    _stop_daemon(
-        socket_path=SOCKET_PATH,
-        pkill_patterns=["dictate.live.daemon", "dictate-daemon"],
-        daemon_name="Dictation",
-    )
+    from dictate.stop import main as stop_main
+
+    stop_main()
 
 
 def main() -> None:

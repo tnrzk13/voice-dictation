@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from dictate.live.daemon import (
     _concat_transcriptions,
-    _finalize_segments,
+    _finalize_completed_segments,
     _send_message,
     handle_client,
 )
@@ -93,50 +93,46 @@ class TestConcatTranscriptions:
         assert _concat_transcriptions("hello ", " world") == "hello world"
 
 
-class TestFinalizeSegments:
+class TestFinalizeCompletedSegments:
     def test_adds_space_between_finalized_and_segment(self):
         """Segments without leading spaces get proper word separation."""
-        model = _make_whisper_model([
-            _make_segment("we can", start=0.0, end=5.0),
-            _make_segment("do it", start=5.0, end=10.0),
-        ])
-        finalized, _ = _finalize_segments(model, b"\x00" * 64000, "", 32000)
+        segments = [
+            {"text": "we can", "start": 0.0, "end": 5.0},
+            {"text": "do it", "start": 5.0, "end": 10.0},
+        ]
+        finalized, _ = _finalize_completed_segments(segments, "")
         assert finalized == "we can"
 
     def test_accumulates_across_multiple_trims(self):
         """Multiple buffer trims maintain spacing in finalized_text."""
-        # First trim: finalize "we can"
-        model1 = _make_whisper_model([
-            _make_segment("we can", start=0.0, end=5.0),
-            _make_segment("do", start=5.0, end=7.0),
-        ])
-        finalized, _ = _finalize_segments(model1, b"\x00" * 64000, "", 32000)
+        segments1 = [
+            {"text": "we can", "start": 0.0, "end": 5.0},
+            {"text": "do", "start": 5.0, "end": 7.0},
+        ]
+        finalized, _ = _finalize_completed_segments(segments1, "")
         assert finalized == "we can"
 
-        # Second trim: finalize "do it" on top of existing "we can"
-        model2 = _make_whisper_model([
-            _make_segment("do it", start=0.0, end=3.0),
-            _make_segment("now", start=3.0, end=5.0),
-        ])
-        finalized, _ = _finalize_segments(model2, b"\x00" * 64000, finalized, 32000)
+        segments2 = [
+            {"text": "do it", "start": 0.0, "end": 3.0},
+            {"text": "now", "start": 3.0, "end": 5.0},
+        ]
+        finalized, _ = _finalize_completed_segments(segments2, finalized)
         assert finalized == "we can do it"
 
     def test_single_segment_no_finalization(self):
         """With only one segment, nothing is finalized."""
-        model = _make_whisper_model([
-            _make_segment("hello", start=0.0, end=5.0),
-        ])
-        finalized, bytes_trimmed = _finalize_segments(model, b"\x00" * 64000, "", 32000)
+        segments = [{"text": "hello", "start": 0.0, "end": 5.0}]
+        finalized, bytes_trimmed = _finalize_completed_segments(segments, "")
         assert finalized == ""
         assert bytes_trimmed == 0
 
     def test_bytes_trimmed_aligned_to_int16(self):
         """Trimmed bytes are aligned to 2-byte int16 boundary."""
-        model = _make_whisper_model([
-            _make_segment("hello", start=0.0, end=1.0),
-            _make_segment("world", start=1.5, end=3.0),
-        ])
-        _, bytes_trimmed = _finalize_segments(model, b"\x00" * 64000, "", 32000)
+        segments = [
+            {"text": "hello", "start": 0.0, "end": 1.0},
+            {"text": "world", "start": 1.5, "end": 3.0},
+        ]
+        _, bytes_trimmed = _finalize_completed_segments(segments, "")
         assert bytes_trimmed % 2 == 0
         assert bytes_trimmed == 48000  # 1.5 * 32000 = 48000
 

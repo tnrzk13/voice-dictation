@@ -90,6 +90,8 @@ class ProgressiveTyper:
     def _execute_edit(self, backspaces: int, to_type: str) -> None:
         """Send backspaces and type new text via xdotool."""
         if backspaces > 0 or to_type:
+            # Pre-set so KeyboardMonitor ignores synthetic xdotool keypresses
+            # that arrive before the post-set on the last line.
             self.last_typed_at = time.time()
         if backspaces > 0:
             _send_backspaces(backspaces)

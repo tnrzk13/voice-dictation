@@ -4,6 +4,8 @@ import os
 
 # Audio
 SAMPLE_RATE = 16000  # Hz - Whisper expects 16kHz
+BYTES_PER_SAMPLE = 2  # int16
+BYTES_PER_SECOND = SAMPLE_RATE * BYTES_PER_SAMPLE
 
 # Whisper Model
 WHISPER_MODEL_SIZE = "base"

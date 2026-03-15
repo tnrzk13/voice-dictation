@@ -25,9 +25,10 @@ import threading
 import numpy as np
 
 from dictate.config import (
+    BYTES_PER_SAMPLE,
+    BYTES_PER_SECOND,
     DAEMON_LOG,
     MAX_WINDOW_SECONDS,
-    SAMPLE_RATE,
     SOCKET_PATH,
     TRANSCRIBE_INTERVAL,
     WHISPER_COMPUTE_TYPE,
@@ -122,8 +123,6 @@ def _transcribe_loop(
     """
     finalized_text = ""
     last_partial_text = ""
-    bytes_per_sample = 2  # int16
-    bytes_per_second = SAMPLE_RATE * bytes_per_sample
 
     while not client_done.is_set():
         client_done.wait(timeout=TRANSCRIBE_INTERVAL)
@@ -133,7 +132,8 @@ def _transcribe_loop(
                 continue
             snapshot = bytes(audio_buffer)
 
-        full_text = _transcribe_audio(model, snapshot)
+        segments = _transcribe(model, snapshot)
+        full_text = "".join(seg["text"] for seg in segments)
         if not full_text:
             continue
 
@@ -143,21 +143,35 @@ def _transcribe_loop(
         last_partial_text = display_text
         _send_message(connection, "partial", display_text)
 
-        window_seconds = len(snapshot) / bytes_per_second
+        window_seconds = len(snapshot) / BYTES_PER_SECOND
         if window_seconds > MAX_WINDOW_SECONDS:
-            finalized_text, bytes_trimmed = _finalize_segments(
-                model, snapshot, finalized_text, bytes_per_second
+            finalized_text, bytes_trimmed = _finalize_completed_segments(
+                segments, finalized_text
             )
             if bytes_trimmed > 0:
                 with buffer_lock:
                     del audio_buffer[:bytes_trimmed]
+            else:
+                # Single segment - force-finalize to prevent unbounded
+                # buffer growth. Trim everything we've transcribed; audio
+                # arriving during the next cycle provides natural context.
+                finalized_text = _concat_transcriptions(finalized_text, full_text)
+                trim_bytes = len(snapshot)
+                trim_bytes -= trim_bytes % BYTES_PER_SAMPLE  # align to int16 boundary
+                with buffer_lock:
+                    del audio_buffer[:trim_bytes]
+                logging.info(
+                    f"Force-trimmed buffer: {window_seconds:.1f}s -> 0s "
+                    "(single segment)"
+                )
 
     # Final transcription of remaining audio
     with buffer_lock:
         snapshot = bytes(audio_buffer)
 
     if snapshot:
-        final_text = _transcribe_audio(model, snapshot)
+        segments = _transcribe(model, snapshot)
+        final_text = "".join(seg["text"] for seg in segments)
         if final_text:
             text = _concat_transcriptions(finalized_text, final_text)
             _send_message(connection, "final", text)
@@ -165,14 +179,12 @@ def _transcribe_loop(
     _send_message(connection, "end", "")
 
 
-def _finalize_segments(model, snapshot, finalized_text, bytes_per_second):
+def _finalize_completed_segments(segments, finalized_text):
     """Finalize completed segments and return trim info.
 
-    Transcribes with segment timestamps, finalizes all but the last segment
-    (which may be incomplete), and returns how many bytes to trim from the
-    front of the audio buffer.
+    Finalizes all but the last segment (which may be incomplete) and returns
+    how many bytes to trim from the front of the audio buffer.
     """
-    segments = _transcribe_segments(model, snapshot)
     if len(segments) <= 1:
         return finalized_text, 0
 
@@ -180,8 +192,8 @@ def _finalize_segments(model, snapshot, finalized_text, bytes_per_second):
         finalized_text = _concat_transcriptions(finalized_text, seg["text"])
 
     last_start = segments[-1]["start"]
-    bytes_trimmed = int(last_start * bytes_per_second)
-    bytes_trimmed -= bytes_trimmed % 2  # align to int16 boundary
+    bytes_trimmed = int(last_start * BYTES_PER_SECOND)
+    bytes_trimmed -= bytes_trimmed % BYTES_PER_SAMPLE
     return finalized_text, bytes_trimmed
 
 
@@ -205,15 +217,12 @@ def _pcm_to_float32(audio_bytes: bytes) -> np.ndarray:
     return np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
 
 
-def _transcribe_audio(model, audio_bytes: bytes) -> str:
-    """Transcribe raw PCM int16 bytes, returning the full text."""
-    audio = _pcm_to_float32(audio_bytes)
-    segments, _ = model.transcribe(audio, language="en", beam_size=1, hotwords=WHISPER_HOTWORDS)
-    return "".join(seg.text for seg in segments)
+def _transcribe(model, audio_bytes: bytes) -> list:
+    """Transcribe raw PCM int16 bytes, returning segment dicts.
 
-
-def _transcribe_segments(model, audio_bytes: bytes) -> list:
-    """Transcribe and return segment dicts with text, start, end times."""
+    Each segment has 'text', 'start', and 'end' keys. Callers that only
+    need the full text can join segment texts.
+    """
     audio = _pcm_to_float32(audio_bytes)
     segments, _ = model.transcribe(audio, language="en", beam_size=1, hotwords=WHISPER_HOTWORDS)
     return [{"text": seg.text, "start": seg.start, "end": seg.end} for seg in segments]
