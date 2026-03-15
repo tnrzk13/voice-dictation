@@ -58,6 +58,8 @@ class LiveDaemonClient:
         """Send a raw PCM int16 audio frame to the daemon."""
         if self._sock is None:
             return
+        if self._stop_event is not None and self._stop_event.is_set():
+            return
         try:
             self._sock.sendall(frame)
         except (BrokenPipeError, OSError) as e:

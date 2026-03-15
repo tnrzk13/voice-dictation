@@ -71,6 +71,8 @@ class LiveRecorder:
         status: sd.CallbackFlags,
     ) -> None:
         """Send each audio frame to the daemon."""
+        if self._stop.is_set():
+            return
         if status:
             print(f"Audio status: {status}", file=sys.stderr)
 
