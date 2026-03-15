@@ -5,6 +5,7 @@ Linux voice dictation - speak into your mic, text appears at your cursor. Powere
 ## Features
 
 - **Real-time streaming**: Words appear and self-correct as you speak
+- **Spoken formatting commands**: Say "slash", "comma", "open parenthesis", etc. to insert symbols
 - **Daemon architecture**: Whisper model stays loaded in memory for fast transcription
 - **Desktop integration**: Types text directly at your cursor via `xdotool`
 - **Desktop notifications**: Visual feedback for daemon loading and errors
@@ -72,6 +73,23 @@ Settings > Keyboard > Custom Shortcuts > Command: `dictate`
 bindsym $mod+d exec dictate
 ```
 
+## Spoken Commands
+
+Say these phrases while dictating to insert symbols and formatting:
+
+| Category | Say | Get |
+|----------|-----|-----|
+| **Punctuation** | "period", "comma", "question mark", "exclamation mark" | `. , ? !` |
+| **Brackets** | "open parenthesis ... close parenthesis" | `(...)` |
+| **Quotes** | "open quote ... close quote" | `"..."` |
+| **Path separators** | "slash", "backslash", "hyphen", "underscore" | `/ \ - _` |
+| **Newlines** | "new line", "new paragraph", "tab key" | line break, double break, tab |
+| **Programming** | "equals sign", "plus sign", "at sign", "hash sign" | `= + @ #` |
+
+Commands are case-insensitive and work in real-time as you speak. Whisper auto-punctuation (periods, commas) is deduplicated so saying "period" after a natural pause won't produce a double period.
+
+Full command list: `src/dictate/live/formatting.py`
+
 ## Configuration
 
 Edit `src/dictate/config.py` for shared settings:
@@ -129,7 +147,8 @@ voice-dictation/
 │       ├── client.py        # Streaming daemon client
 │       ├── recorder.py      # Audio capture and streaming
 │       ├── typer.py         # Progressive diff-based typing
-│       └── keyboard_monitor.py  # Enter/Escape key detection
+│       ├── formatting.py    # Spoken command formatting (slash, comma, etc.)
+│       └── keyboard_monitor.py  # Keystroke detection to stop dictation
 ├── tests/
 ├── scripts/
 ├── pyproject.toml
