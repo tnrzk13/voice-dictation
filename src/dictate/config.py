@@ -26,5 +26,5 @@ DAEMON_STARTUP_TIMEOUT = 10  # Whisper model load can take a moment
 DAEMON_POLL_INTERVAL = 0.1
 
 # UI/UX
-XDOTOOL_KEYSTROKE_DELAY = 5  # milliseconds between keystrokes
+XDOTOOL_KEYSTROKE_DELAY = 12  # milliseconds between keystrokes
 BACKSPACE_SETTLE_DELAY = 0.05  # seconds - let backspaces process before typing
