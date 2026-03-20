@@ -10,7 +10,12 @@ import re
 import time
 from typing import Tuple
 
-from dictate.config import BACKSPACE_SETTLE_DELAY
+from dictate.config import (
+    BACKSPACE_SETTLE_DELAY,
+    KEEP_TAIL_WORDS,
+    MAX_REVISION_BACKSPACES,
+    STABILITY_THRESHOLD,
+)
 from dictate.live.formatting import apply_formatting_commands
 from dictate.xdotool import type_text as _type_text, send_backspaces as _send_backspaces
 
@@ -21,6 +26,7 @@ class ProgressiveTyper:
     def __init__(self) -> None:
         self._committed = ""  # Finalized text - won't change
         self._pending = ""  # Currently displayed partial - may be revised
+        self._stable_count: int = 0  # Consecutive partials with matching prefix
         self.last_typed_at: float = 0.0
         self.is_typing: bool = False
 
@@ -45,7 +51,10 @@ class ProgressiveTyper:
         new_pending = self._strip_committed_prefix(text)
         new_pending = apply_formatting_commands(new_pending)
         new_pending = _capitalize_first(new_pending)
+        new_pending = self._auto_commit_stable_words(new_pending)
         backspaces, to_type = self._compute_edit(self._pending, new_pending)
+        if self._should_skip_partial(backspaces):
+            return 0, ""
         self._pending = new_pending
         self._execute_edit(backspaces, to_type)
         return backspaces, to_type
@@ -63,8 +72,37 @@ class ProgressiveTyper:
         backspaces, to_type = self._compute_edit(self._pending, spaced)
         self._committed += spaced
         self._pending = ""
+        self._stable_count = 0
         self._execute_edit(backspaces, to_type)
         return backspaces, to_type
+
+    def _auto_commit_stable_words(self, new_pending: str) -> str:
+        """Promote words stable across consecutive partials to committed text.
+
+        Words that match at the start of both old and new pending for
+        STABILITY_THRESHOLD consecutive calls get moved to _committed,
+        making them immune to future Whisper revisions.
+        """
+        old_words = self._pending.split()
+        new_words = new_pending.split()
+        match = _count_common_prefix_words(old_words, new_words)
+        if match > 0:
+            self._stable_count += 1
+        else:
+            self._stable_count = 0
+            return new_pending
+        if self._stable_count >= STABILITY_THRESHOLD and match > KEEP_TAIL_WORDS:
+            commit_count = match - KEEP_TAIL_WORDS
+            commit_text = " ".join(old_words[:commit_count]) + " "
+            self._committed += commit_text
+            self._pending = " ".join(old_words[commit_count:])
+            new_pending = " ".join(new_words[commit_count:])
+            self._stable_count = 0
+        return new_pending
+
+    def _should_skip_partial(self, backspaces: int) -> bool:
+        """Block catastrophic revisions that would overwrite stable text."""
+        return backspaces > MAX_REVISION_BACKSPACES
 
     def _strip_committed_prefix(self, text: str) -> str:
         """Remove the committed portion from the beginning of new text.
@@ -113,6 +151,15 @@ def _capitalize_first(text: str) -> str:
     if not text:
         return text
     return text[0].upper() + text[1:]
+
+
+def _count_common_prefix_words(old_words: list, new_words: list) -> int:
+    """Count leading words that match, case-insensitive."""
+    limit = min(len(old_words), len(new_words))
+    for i in range(limit):
+        if old_words[i].lower() != new_words[i].lower():
+            return i
+    return limit
 
 
 def _find_common_prefix_length(a: str, b: str) -> int:

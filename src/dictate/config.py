@@ -25,6 +25,11 @@ DAEMON_LOG = os.path.expanduser("~/.local/share/voice-dictation/live-daemon.log"
 DAEMON_STARTUP_TIMEOUT = 10  # Whisper model load can take a moment
 DAEMON_POLL_INTERVAL = 0.1
 
+# Stability - auto-commit words consistent across consecutive partials
+STABILITY_THRESHOLD = 2       # consecutive agreeing partials before auto-commit
+KEEP_TAIL_WORDS = 2           # always keep last N words uncommitted for corrections
+MAX_REVISION_BACKSPACES = 20  # skip partial if it needs more backspaces than this
+
 # UI/UX
 XDOTOOL_KEYSTROKE_DELAY = 12  # milliseconds between keystrokes
 BACKSPACE_SETTLE_DELAY = 0.05  # seconds - let backspaces process before typing
