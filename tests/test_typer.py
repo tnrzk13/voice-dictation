@@ -376,7 +376,7 @@ class TestAutoCommitStableWords:
         # After 3rd partial: match=5 words, commit 5-2=3 words
         # committed should have first 3 words, pending has last 2+ new
         assert "Alpha bravo charlie " in typer.committed
-        assert typer.pending.startswith("delta echo")
+        assert typer.pending.startswith("Delta echo")
 
     def test_no_commit_when_match_lte_keep_tail(self, mock_type, mock_bs):
         """Don't commit if matching prefix is <= KEEP_TAIL_WORDS."""

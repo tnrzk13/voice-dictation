@@ -95,8 +95,8 @@ class ProgressiveTyper:
             commit_count = match - KEEP_TAIL_WORDS
             commit_text = " ".join(old_words[:commit_count]) + " "
             self._committed += commit_text
-            self._pending = " ".join(old_words[commit_count:])
-            new_pending = " ".join(new_words[commit_count:])
+            self._pending = _capitalize_first(" ".join(old_words[commit_count:]))
+            new_pending = _capitalize_first(" ".join(new_words[commit_count:]))
             self._stable_count = 0
         return new_pending
 
