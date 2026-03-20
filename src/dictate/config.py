@@ -28,7 +28,8 @@ DAEMON_POLL_INTERVAL = 0.1
 # Stability - auto-commit words consistent across consecutive partials
 STABILITY_THRESHOLD = 2       # consecutive agreeing partials before auto-commit
 KEEP_TAIL_WORDS = 2           # always keep last N words uncommitted for corrections
-MAX_REVISION_BACKSPACES = 20  # skip partial if it needs more backspaces than this
+MAX_PREFIX_MISMATCHES = 3     # word substitutions tolerated during committed prefix stripping (floor)
+MAX_PREFIX_MISMATCH_FRACTION = 0.3  # also tolerate up to 30% mismatches for long committed text
 
 # UI/UX
 XDOTOOL_KEYSTROKE_DELAY = 12  # milliseconds between keystrokes

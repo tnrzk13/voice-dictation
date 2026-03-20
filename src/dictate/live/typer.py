@@ -13,7 +13,8 @@ from typing import Tuple
 from dictate.config import (
     BACKSPACE_SETTLE_DELAY,
     KEEP_TAIL_WORDS,
-    MAX_REVISION_BACKSPACES,
+    MAX_PREFIX_MISMATCH_FRACTION,
+    MAX_PREFIX_MISMATCHES,
     STABILITY_THRESHOLD,
 )
 from dictate.live.formatting import apply_formatting_commands
@@ -53,8 +54,6 @@ class ProgressiveTyper:
         new_pending = _capitalize_first(new_pending)
         new_pending = self._auto_commit_stable_words(new_pending)
         backspaces, to_type = self._compute_edit(self._pending, new_pending)
-        if self._should_skip_partial(backspaces):
-            return 0, ""
         self._pending = new_pending
         self._execute_edit(backspaces, to_type)
         return backspaces, to_type
@@ -100,15 +99,12 @@ class ProgressiveTyper:
             self._stable_count = 0
         return new_pending
 
-    def _should_skip_partial(self, backspaces: int) -> bool:
-        """Block catastrophic revisions that would overwrite stable text."""
-        return backspaces > MAX_REVISION_BACKSPACES
-
     def _strip_committed_prefix(self, text: str) -> str:
         """Remove the committed portion from the beginning of new text.
 
         Uses word-based comparison so punctuation differences don't
-        break matching against partial results.
+        break matching against partial results. Tolerates up to
+        MAX_PREFIX_MISMATCHES word substitutions (Whisper revisions).
         """
         committed_words = _strip_punctuation(self._committed).split()
         if not committed_words:
@@ -116,10 +112,16 @@ class ProgressiveTyper:
         text_words = text.split()
         if len(text_words) < len(committed_words):
             return text
+        max_allowed = max(MAX_PREFIX_MISMATCHES, int(len(committed_words) * MAX_PREFIX_MISMATCH_FRACTION))
+        mismatches = 0
         for i, committed_word in enumerate(committed_words):
             if text_words[i].lower() != committed_word.lower():
-                return text
-        remaining_words = text_words[len(committed_words) :]
+                mismatches += 1
+                if mismatches > max_allowed:
+                    return text
+        if mismatches >= len(committed_words):
+            return text  # all words differ - new text, not a revision
+        remaining_words = text_words[len(committed_words):]
         return " ".join(remaining_words) if remaining_words else ""
 
     def _compute_edit(self, old: str, new: str) -> Tuple[int, str]:

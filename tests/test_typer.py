@@ -427,79 +427,148 @@ class TestAutoCommitStableWords:
 
 @patch("dictate.live.typer._send_backspaces")
 @patch("dictate.live.typer._type_text")
-class TestBackspaceCap:
-    def test_skips_partial_exceeding_cap(self, mock_type, mock_bs):
-        """Partial needing >20 backspaces is skipped entirely."""
+class TestTolerantPrefixStripping:
+    def test_strips_with_zero_mismatches(self, mock_type, mock_bs):
+        """Exact match strips normally (existing behavior)."""
         typer = ProgressiveTyper()
-        typer._pending = "This is a long sentence that was typed out already"
-        mock_type.reset_mock()
-        mock_bs.reset_mock()
-        # New partial would replace most of the text (>20 backspaces)
-        backspaces, typed = typer.apply_partial("completely different")
-        assert backspaces == 0
-        assert typed == ""
-        # Pending unchanged
-        assert typer._pending == "This is a long sentence that was typed out already"
-        mock_bs.assert_not_called()
-        mock_type.assert_not_called()
+        typer._committed = "Hello world "
+        typer._pending = ""
+        backspaces, typed = typer.apply_partial("hello world new stuff")
+        assert typed == "New stuff"
 
-    def test_allows_partial_within_cap(self, mock_type, mock_bs):
-        """Partial needing <=20 backspaces proceeds normally."""
+    def test_strips_with_one_word_mismatch(self, mock_type, mock_bs):
+        """Whisper revises 'content' to 'context' - still strips prefix."""
         typer = ProgressiveTyper()
-        typer.apply_partial("hello world")
-        mock_type.reset_mock()
-        mock_bs.reset_mock()
-        backspaces, typed = typer.apply_partial("hello there")
-        assert backspaces == 5  # "world" -> "there"
-        assert typed == "there"
+        typer._committed = "The content of this "
+        typer._pending = ""
+        backspaces, typed = typer.apply_partial("the context of this message")
+        assert typed == "Message"
 
-    def test_cap_does_not_apply_to_final(self, mock_type, mock_bs):
-        """Finals are authoritative - cap doesn't apply."""
+    def test_strips_at_max_mismatches(self, mock_type, mock_bs):
+        """Exactly MAX_PREFIX_MISMATCHES (3) mismatches still strips."""
         typer = ProgressiveTyper()
-        typer._pending = "This is a long sentence that was typed out already"
-        backspaces, typed = typer.apply_final("completely different text")
-        # Final should proceed even with many backspaces
-        assert typer.committed == "Completely different text "
-        assert typer.pending == ""
+        typer._committed = "Alpha bravo charlie delta echo "
+        typer._pending = ""
+        # 3 of 5 words revised
+        backspaces, typed = typer.apply_partial("alfa brave charlie delt echo new words")
+        assert typed == "New words"
 
-    def test_recovery_after_skip(self, mock_type, mock_bs):
-        """After a skipped partial, next reasonable partial applies normally."""
+    def test_fails_to_strip_beyond_max_mismatches(self, mock_type, mock_bs):
+        """More than MAX_PREFIX_MISMATCHES mismatches returns full text."""
         typer = ProgressiveTyper()
-        typer._pending = "Hello world this is a long test sentence here"
-        mock_type.reset_mock()
-        mock_bs.reset_mock()
-        # This would need too many backspaces - skipped
-        typer.apply_partial("completely different")
-        assert typer._pending == "Hello world this is a long test sentence here"
-        # Next partial is reasonable - applies
-        backspaces, typed = typer.apply_partial("Hello world this is a long test sentence here now")
-        assert typed == " now"
-        assert backspaces == 0
+        typer._committed = "Alpha bravo charlie delta echo "
+        typer._pending = ""
+        # 4 of 5 words revised - exceeds limit
+        backspaces, typed = typer.apply_partial("alfa brave charly delt echo tail")
+        # Full text returned (capitalized), not stripped
+        assert "Alfa" in typed
+
+    def test_mismatch_at_start(self, mock_type, mock_bs):
+        """Mismatch on the first committed word still strips."""
+        typer = ProgressiveTyper()
+        typer._committed = "Content is important "
+        typer._pending = ""
+        backspaces, typed = typer.apply_partial("context is important here")
+        assert typed == "Here"
+
+    def test_mismatch_at_end(self, mock_type, mock_bs):
+        """Mismatch on the last committed word still strips."""
+        typer = ProgressiveTyper()
+        typer._committed = "The important content "
+        typer._pending = ""
+        backspaces, typed = typer.apply_partial("the important context is here")
+        assert typed == "Is here"
+
+    def test_mismatch_in_middle(self, mock_type, mock_bs):
+        """Mismatch in the middle of committed words still strips."""
+        typer = ProgressiveTyper()
+        typer._committed = "I like the content here "
+        typer._pending = ""
+        backspaces, typed = typer.apply_partial("I like the context here very much")
+        assert typed == "Very much"
+
+    def test_scales_tolerance_for_long_committed(self, mock_type, mock_bs):
+        """20+ committed words with 5 mismatches (within 30%) still strips."""
+        typer = ProgressiveTyper()
+        # 20 committed words - max allowed = max(3, int(20*0.3)) = max(3, 6) = 6
+        typer._committed = (
+            "I would like to visit Japan and see how a small "
+            "town operates during the winter festival season "
+        )
+        typer._pending = ""
+        # 5 words revised: "like"->"want", "Japan"->"Tokyo", "small"->"tiny",
+        # "operates"->"functions", "winter"->"summer"
+        partial = (
+            "I would want to visit Tokyo and see how a tiny "
+            "town functions during the summer festival season and more"
+        )
+        backspaces, typed = typer.apply_partial(partial)
+        assert typed == "And more"
+
+    def test_long_committed_fails_beyond_fraction(self, mock_type, mock_bs):
+        """20+ committed words with mismatches exceeding 30% returns full text."""
+        typer = ProgressiveTyper()
+        # 20 committed words - max allowed = 6
+        typer._committed = (
+            "I would like to visit Japan and see how a small "
+            "town operates during the winter festival season "
+        )
+        typer._pending = ""
+        # 7 words revised (exceeds 6 allowed)
+        partial = (
+            "I would want to explore Tokyo and watch how a tiny "
+            "city functions during the summer festival season tail"
+        )
+        backspaces, typed = typer.apply_partial(partial)
+        # Full text returned, not stripped
+        assert "I" in typed and "want" in typed
+
+    def test_real_world_whisper_revision_after_finalization(self, mock_type, mock_bs):
+        """Simulate 50+ word committed prefix with scattered Whisper revisions."""
+        typer = ProgressiveTyper()
+        # 52 committed words
+        typer._committed = (
+            "I would like to visit Japan and see how a small town "
+            "operates during the winter festival season because I have "
+            "always been fascinated by the culture and traditions of "
+            "the Japanese people especially their dedication to craft "
+            "and attention to detail in everything they do "
+        )
+        typer._pending = ""
+        # max allowed = max(3, int(52*0.3)) = max(3, 15) = 15
+        # 8 scattered revisions (well within 15)
+        partial = (
+            "I would want to visit Tokyo and see how a tiny town "
+            "functions during the summer festival time because I have "
+            "always been fascinated by the customs and traditions of "
+            "the Japanese people especially their commitment to craft "
+            "and attention to details in everything they do "
+            "which is truly remarkable"
+        )
+        backspaces, typed = typer.apply_partial(partial)
+        assert typed == "Which is truly remarkable"
+        assert typer.displayed_text.endswith("Which is truly remarkable")
 
 
 @patch("dictate.live.typer._send_backspaces")
 @patch("dictate.live.typer._type_text")
-class TestAutoCommitAndCapIntegration:
-    def test_auto_commit_reduces_backspaces_below_cap(self, mock_type, mock_bs):
-        """Auto-commit shrinks pending, keeping revisions under the cap."""
+class TestAutoCommitIntegration:
+    def test_auto_commit_keeps_revisions_small(self, mock_type, mock_bs):
+        """Auto-commit shrinks pending so tail revisions are small edits."""
         typer = ProgressiveTyper()
-        # Build up a long sentence over several partials
         typer.apply_partial("I would like to visit Japan and see how")
         typer.apply_partial("I would like to visit Japan and see how a small")
         typer.apply_partial("I would like to visit Japan and see how a small town")
-        # By now, early words should be auto-committed
         assert typer.committed != ""
-        # A revision to the tail stays under the cap because most text is committed
         backspaces, typed = typer.apply_partial(
             "I would like to visit Japan and see how a small village"
         )
-        # "town" -> "village" is a small edit, not a catastrophic rewrite
+        # "town" -> "village" is a small edit
         assert backspaces <= 20
 
-    def test_bug_scenario_whisper_revision_preserves_stable_text(self, mock_type, mock_bs):
-        """Reproduces the bug: Whisper drops middle of a long dictation."""
+    def test_whisper_word_revision_does_not_cause_stuck_state(self, mock_type, mock_bs):
+        """Whisper revises a committed word - tolerant stripping prevents deadlock."""
         typer = ProgressiveTyper()
-        # Simulate growing partials during a long dictation
         typer.apply_partial("I would like to visit Japan")
         typer.apply_partial("I would like to visit Japan and see")
         typer.apply_partial("I would like to visit Japan and see how")
@@ -508,15 +577,12 @@ class TestAutoCommitAndCapIntegration:
         typer.apply_partial(
             "I would like to visit Japan and see how a small town is like especially"
         )
-        # At this point, early words should be auto-committed
         committed_snapshot = typer.committed
         assert "I would like to visit Japan " in committed_snapshot
-        # Whisper now revises, dropping the middle section
-        # This would previously cause 50+ backspaces
-        typer.apply_partial(
+        # Whisper revises committed words (e.g., "see how" -> "see to", "small" -> "how")
+        backspaces, typed = typer.apply_partial(
             "I would like to visit Japan and see to Osaka and see how the average"
         )
-        # The committed text should be preserved (not overwritten)
+        # Tolerant prefix stripping handles the revision - text doesn't get stuck
         assert typer.committed.startswith(committed_snapshot)
-        # The displayed text should still contain the stable prefix
         assert typer.displayed_text.startswith(committed_snapshot)
