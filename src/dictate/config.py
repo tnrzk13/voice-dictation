@@ -1,6 +1,7 @@
 """Configuration constants for voice dictation."""
 
 import os
+from pathlib import Path
 
 # Audio
 SAMPLE_RATE = 16000  # Hz - Whisper expects 16kHz
@@ -17,7 +18,13 @@ TRANSCRIBE_INTERVAL = 2  # seconds between transcription cycles
 MAX_WINDOW_SECONDS = 20  # finalize segments when audio exceeds this length
 
 # Vocabulary hints - bias Whisper toward domain-specific terms it often mishears
-WHISPER_HOTWORDS = "Claude Code Jira"
+# Loaded from hotwords.txt in the project root (one word/phrase per line)
+_HOTWORDS_PATH = Path(__file__).resolve().parents[2] / "hotwords.txt"
+WHISPER_HOTWORDS = " ".join(
+    line.strip()
+    for line in _HOTWORDS_PATH.read_text().splitlines()
+    if line.strip() and not line.startswith("#")
+) if _HOTWORDS_PATH.exists() else ""
 
 # Daemon
 SOCKET_PATH = "/tmp/dictate-live-daemon.sock"

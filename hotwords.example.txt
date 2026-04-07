@@ -1,0 +1,6 @@
+# Whisper hotwords - one per line
+# These bias transcription toward domain-specific terms Whisper often mishears.
+# Copy this file to hotwords.txt and customize for your vocabulary.
+Claude
+Code
+Jira

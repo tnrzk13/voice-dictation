@@ -112,6 +112,10 @@ dictate-daemon --model large-v3 --device cuda --compute-type float16
 
 Available model sizes: `tiny`, `base`, `small`, `medium`, `large-v3`, `large-v3-turbo` (default).
 
+### Hotwords
+
+Copy `hotwords.example.txt` to `hotwords.txt` and add domain-specific terms that Whisper often mishears (one per line). This file is gitignored so each user can customize it.
+
 ### Streaming settings
 
 Edit `src/dictate/config.py`:
@@ -119,7 +123,6 @@ Edit `src/dictate/config.py`:
 ```python
 TRANSCRIBE_INTERVAL = 2   # seconds between transcription cycles
 MAX_WINDOW_SECONDS = 20   # finalize segments when audio exceeds this
-WHISPER_HOTWORDS = "Claude Code Jira"  # space-separated terms Whisper often mishears
 ```
 
 ## Architecture
