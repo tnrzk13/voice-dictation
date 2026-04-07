@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from .system import notify
 
@@ -59,11 +59,13 @@ def start_daemon_process(
     socket_path: str,
     timeout: float,
     poll_interval: float,
+    extra_args: Optional[List[str]] = None,
 ) -> bool:
     """Start a daemon subprocess, trying entry point first then module fallback."""
+    suffix = extra_args or []
     try:
         subprocess.Popen(
-            [entry_point],
+            [entry_point] + suffix,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.STDOUT,
             start_new_session=True,
@@ -71,7 +73,7 @@ def start_daemon_process(
         )
     except FileNotFoundError:
         subprocess.Popen(
-            [sys.executable, "-m", module_path],
+            [sys.executable, "-m", module_path] + suffix,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.STDOUT,
             start_new_session=True,

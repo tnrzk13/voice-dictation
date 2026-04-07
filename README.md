@@ -37,7 +37,7 @@ pip install -e .
 
 This installs three commands: `dictate`, `dictate-daemon`, and `dictate-stop`.
 
-The Whisper model (~150MB) downloads automatically on first use.
+The Whisper model downloads automatically on first use (~800MB for the default `large-v3-turbo`).
 
 ## Usage
 
@@ -47,6 +47,9 @@ dictate
 
 # Non-streaming - text appears only after you stop recording
 dictate --no-stream
+
+# Use a different model or device
+dictate --model base --device cpu --compute-type int8
 
 # Press Enter or Escape to stop recording
 ```
@@ -92,19 +95,31 @@ Full command list: `src/dictate/live/formatting.py`
 
 ## Configuration
 
-Edit `src/dictate/config.py` for shared settings:
+### Model settings
 
-```python
-SAMPLE_RATE = 16000          # Hz - Whisper expects 16kHz
-WHISPER_MODEL_SIZE = "base"  # "tiny", "small", "medium", "large-v3"
+Pass `--model`, `--device`, and `--compute-type` to `dictate` or `dictate-daemon`:
+
+```bash
+# Default: large-v3-turbo on GPU with float16
+dictate
+
+# CPU with smaller model
+dictate --model base --device cpu --compute-type int8
+
+# Start daemon directly with specific config
+dictate-daemon --model large-v3 --device cuda --compute-type float16
 ```
 
-Streaming settings are also in `src/dictate/config.py`:
+Available model sizes: `tiny`, `base`, `small`, `medium`, `large-v3`, `large-v3-turbo` (default).
+
+### Streaming settings
+
+Edit `src/dictate/config.py`:
 
 ```python
 TRANSCRIBE_INTERVAL = 2   # seconds between transcription cycles
 MAX_WINDOW_SECONDS = 20   # finalize segments when audio exceeds this
-WHISPER_HOTWORDS = "Claude Code"  # space-separated terms Whisper often mishears
+WHISPER_HOTWORDS = "Claude Code Jira"  # space-separated terms Whisper often mishears
 ```
 
 ## Architecture
@@ -172,16 +187,16 @@ rm /tmp/dictate-live-daemon.sock
 - X11 required - Wayland is not supported
 
 ### Model download issues
-The first run downloads the Whisper "base" model (~150MB). If it fails:
+The first run downloads the Whisper model (size varies by model). If it fails:
 ```bash
-python -c "from faster_whisper import WhisperModel; WhisperModel('base')"
+python -c "from faster_whisper import WhisperModel; WhisperModel('large-v3-turbo')"
 ```
 
 ## Dependencies
 
 - `numpy` - Audio processing
 - `sounddevice` - Microphone input
-- `faster-whisper` - Whisper model inference (CTranslate2, CPU-optimized)
+- `faster-whisper` - Whisper model inference (CTranslate2, CPU and GPU)
 - `pynput` - Keyboard monitoring
 
 ## License

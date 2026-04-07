@@ -8,9 +8,9 @@ BYTES_PER_SAMPLE = 2  # int16
 BYTES_PER_SECOND = SAMPLE_RATE * BYTES_PER_SAMPLE
 
 # Whisper Model
-WHISPER_MODEL_SIZE = "base"
-WHISPER_DEVICE = "cpu"
-WHISPER_COMPUTE_TYPE = "int8"
+WHISPER_MODEL_SIZE = "large-v3-turbo"
+WHISPER_DEVICE = "cuda"
+WHISPER_COMPUTE_TYPE = "float16"
 
 # Transcription Timing
 TRANSCRIBE_INTERVAL = 2  # seconds between transcription cycles

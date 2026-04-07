@@ -135,7 +135,7 @@ class LiveDaemonClient:
         return is_daemon_running(SOCKET_PATH)
 
     @staticmethod
-    def start_daemon() -> bool:
+    def start_daemon(extra_args: Optional[list] = None) -> bool:
         """Start the daemon in the background."""
         from dictate.system import notify
 
@@ -147,4 +147,5 @@ class LiveDaemonClient:
             socket_path=SOCKET_PATH,
             timeout=DAEMON_STARTUP_TIMEOUT,
             poll_interval=DAEMON_POLL_INTERVAL,
+            extra_args=extra_args,
         )

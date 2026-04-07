@@ -7,7 +7,12 @@ streaming transcription - words appear as you speak.
 import argparse
 import sys
 
-from dictate.config import SAMPLE_RATE
+from dictate.config import (
+    SAMPLE_RATE,
+    WHISPER_COMPUTE_TYPE,
+    WHISPER_DEVICE,
+    WHISPER_MODEL_SIZE,
+)
 from dictate.system import check_dependencies_or_exit, notify
 
 
@@ -33,6 +38,21 @@ def parse_args() -> argparse.Namespace:
         metavar="RATE",
         help=f"Audio sample rate in Hz (default: {SAMPLE_RATE})",
     )
+    parser.add_argument(
+        "--model",
+        default=WHISPER_MODEL_SIZE,
+        help=f"Whisper model size (default: {WHISPER_MODEL_SIZE})",
+    )
+    parser.add_argument(
+        "--device",
+        default=WHISPER_DEVICE,
+        help=f"Compute device: cuda or cpu (default: {WHISPER_DEVICE})",
+    )
+    parser.add_argument(
+        "--compute-type",
+        default=WHISPER_COMPUTE_TYPE,
+        help=f"Model precision: float16, int8, etc. (default: {WHISPER_COMPUTE_TYPE})",
+    )
     return parser.parse_args()
 
 
@@ -52,16 +72,21 @@ def main() -> None:
         return
 
     check_dependencies_or_exit()
-    _ensure_daemon_running()
+    _ensure_daemon_running(args)
     _run_dictation(args)
 
 
-def _ensure_daemon_running() -> None:
+def _ensure_daemon_running(args: argparse.Namespace) -> None:
     """Start the daemon if it's not already running."""
     from .client import LiveDaemonClient
 
     if not LiveDaemonClient.is_daemon_running():
-        if not LiveDaemonClient.start_daemon():
+        daemon_args = [
+            "--model", args.model,
+            "--device", args.device,
+            "--compute-type", args.compute_type,
+        ]
+        if not LiveDaemonClient.start_daemon(extra_args=daemon_args):
             notify("Failed to start")
             sys.exit(1)
 

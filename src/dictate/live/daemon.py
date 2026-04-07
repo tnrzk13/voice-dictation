@@ -16,6 +16,7 @@ Protocol:
   Daemon sends: {"type": "end"}\n
 """
 
+import argparse
 import json
 import logging
 import socket
@@ -43,7 +44,7 @@ from dictate.daemon_support import (
 )
 
 
-def _load_whisper_model():
+def _load_whisper_model(model_size, device, compute_type):
     """Load faster-whisper model, failing fast if unavailable."""
     try:
         from faster_whisper import WhisperModel
@@ -54,11 +55,11 @@ def _load_whisper_model():
         )
         sys.exit(1)
 
-    logging.info(f"Loading Whisper model ({WHISPER_MODEL_SIZE})...")
+    logging.info(f"Loading Whisper model ({model_size})...")
     model = WhisperModel(
-        WHISPER_MODEL_SIZE,
-        device=WHISPER_DEVICE,
-        compute_type=WHISPER_COMPUTE_TYPE,
+        model_size,
+        device=device,
+        compute_type=compute_type,
     )
     logging.info("Whisper model loaded.")
     return model
@@ -229,10 +230,32 @@ def _send_message(connection: socket.socket, msg_type: str, text: str) -> None:
     connection.sendall(json.dumps(msg).encode("utf-8") + b"\n")
 
 
+def _parse_args() -> argparse.Namespace:
+    """Parse daemon command-line arguments."""
+    parser = argparse.ArgumentParser(description="Voice dictation daemon")
+    parser.add_argument(
+        "--model",
+        default=WHISPER_MODEL_SIZE,
+        help=f"Whisper model size (default: {WHISPER_MODEL_SIZE})",
+    )
+    parser.add_argument(
+        "--device",
+        default=WHISPER_DEVICE,
+        help=f"Compute device: cuda or cpu (default: {WHISPER_DEVICE})",
+    )
+    parser.add_argument(
+        "--compute-type",
+        default=WHISPER_COMPUTE_TYPE,
+        help=f"Model precision: float16, int8, etc. (default: {WHISPER_COMPUTE_TYPE})",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
     """Main daemon entry point - load model and listen for connections."""
     setup_daemon_logging(DAEMON_LOG)
-    model = _load_whisper_model()
+    args = _parse_args()
+    model = _load_whisper_model(args.model, args.device, args.compute_type)
 
     sock = create_daemon_socket(SOCKET_PATH)
     logging.info(f"Daemon ready on {SOCKET_PATH}")
