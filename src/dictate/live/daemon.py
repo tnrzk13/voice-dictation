@@ -44,8 +44,63 @@ from dictate.daemon_support import (
 )
 
 
-def _load_whisper_model(model_size, device, compute_type):
-    """Load faster-whisper model, failing fast if unavailable."""
+def _is_model_cached(model_size):
+    """Check if the model is already downloaded."""
+    try:
+        from faster_whisper.utils import download_model
+
+        download_model(model_size, local_files_only=True)
+        return True
+    except Exception:
+        return False
+
+
+def _download_model_with_progress(model_size, quiet):
+    """Download the model with optional desktop notification progress."""
+    from dictate.system import notify
+    from faster_whisper.utils import _MODELS
+
+    import huggingface_hub
+    from tqdm import tqdm
+
+    repo_id = _MODELS.get(model_size, model_size)
+    allow_patterns = [
+        "config.json",
+        "preprocessor_config.json",
+        "model.bin",
+        "tokenizer.json",
+        "vocabulary.*",
+    ]
+
+    notify_fn = notify if not quiet else lambda msg: None
+    last_milestone = [0]
+
+    class ProgressTqdm(tqdm):
+        def update(self, n=1):
+            super().update(n)
+            if not self.total or "Fetching" in (self.desc or ""):
+                return
+            percent = int(self.n / self.total * 100)
+            milestone = percent // 10 * 10
+            if milestone > last_milestone[0]:
+                last_milestone[0] = milestone
+                notify_fn(f"Downloading {model_size}: {milestone}%")
+
+    logging.info(f"Downloading model {model_size} ({repo_id})...")
+    notify_fn(f"Downloading {model_size}...")
+
+    huggingface_hub.snapshot_download(
+        repo_id,
+        allow_patterns=allow_patterns,
+        tqdm_class=ProgressTqdm,
+    )
+
+    logging.info("Download complete.")
+    notify_fn(f"Download complete - loading {model_size}")
+
+
+def _load_whisper_model(model_size, device, compute_type, quiet=False):
+    """Load faster-whisper model, downloading with progress if needed."""
     try:
         from faster_whisper import WhisperModel
     except ImportError:
@@ -54,6 +109,9 @@ def _load_whisper_model(model_size, device, compute_type):
             "Install with: pip install faster-whisper>=0.10.0"
         )
         sys.exit(1)
+
+    if not _is_model_cached(model_size):
+        _download_model_with_progress(model_size, quiet)
 
     logging.info(f"Loading Whisper model ({model_size})...")
     model = WhisperModel(
@@ -248,6 +306,11 @@ def _parse_args() -> argparse.Namespace:
         default=WHISPER_COMPUTE_TYPE,
         help=f"Model precision: float16, int8, etc. (default: {WHISPER_COMPUTE_TYPE})",
     )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress download progress notifications",
+    )
     return parser.parse_args()
 
 
@@ -255,7 +318,7 @@ def main() -> None:
     """Main daemon entry point - load model and listen for connections."""
     setup_daemon_logging(DAEMON_LOG)
     args = _parse_args()
-    model = _load_whisper_model(args.model, args.device, args.compute_type)
+    model = _load_whisper_model(args.model, args.device, args.compute_type, args.quiet)
 
     sock = create_daemon_socket(SOCKET_PATH)
     logging.info(f"Daemon ready on {SOCKET_PATH}")

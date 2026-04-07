@@ -29,7 +29,8 @@ WHISPER_HOTWORDS = " ".join(
 # Daemon
 SOCKET_PATH = "/tmp/dictate-live-daemon.sock"
 DAEMON_LOG = os.path.expanduser("~/.local/share/voice-dictation/live-daemon.log")
-DAEMON_STARTUP_TIMEOUT = 10  # Whisper model load can take a moment
+DAEMON_STARTUP_TIMEOUT = 10  # seconds - Whisper model load (no download)
+DAEMON_DOWNLOAD_TIMEOUT = 300  # seconds - first-time model download + load
 DAEMON_POLL_INTERVAL = 0.1
 
 # Stability - auto-commit words consistent across consecutive partials

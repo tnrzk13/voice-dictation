@@ -53,6 +53,11 @@ def parse_args() -> argparse.Namespace:
         default=WHISPER_COMPUTE_TYPE,
         help=f"Model precision: float16, int8, etc. (default: {WHISPER_COMPUTE_TYPE})",
     )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress download progress notifications",
+    )
     return parser.parse_args()
 
 
@@ -78,6 +83,8 @@ def main() -> None:
 
 def _ensure_daemon_running(args: argparse.Namespace) -> None:
     """Start the daemon if it's not already running."""
+    from dictate.config import DAEMON_DOWNLOAD_TIMEOUT, DAEMON_STARTUP_TIMEOUT
+
     from .client import LiveDaemonClient
 
     if not LiveDaemonClient.is_daemon_running():
@@ -86,9 +93,26 @@ def _ensure_daemon_running(args: argparse.Namespace) -> None:
             "--device", args.device,
             "--compute-type", args.compute_type,
         ]
-        if not LiveDaemonClient.start_daemon(extra_args=daemon_args):
+        if args.quiet:
+            daemon_args.append("--quiet")
+        needs_download = not _is_model_cached(args.model)
+        timeout = DAEMON_DOWNLOAD_TIMEOUT if needs_download else DAEMON_STARTUP_TIMEOUT
+        if not LiveDaemonClient.start_daemon(
+            extra_args=daemon_args, timeout=timeout
+        ):
             notify("Failed to start")
             sys.exit(1)
+
+
+def _is_model_cached(model_size: str) -> bool:
+    """Check if the Whisper model is already downloaded."""
+    try:
+        from faster_whisper.utils import download_model
+
+        download_model(model_size, local_files_only=True)
+        return True
+    except Exception:
+        return False
 
 
 def _run_dictation(args: argparse.Namespace) -> None:
