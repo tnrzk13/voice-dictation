@@ -19,6 +19,7 @@ Protocol:
 import argparse
 import json
 import logging
+import os
 import socket
 import sys
 import threading
@@ -42,6 +43,31 @@ from dictate.daemon_support import (
     create_daemon_socket,
     setup_daemon_logging,
 )
+
+
+def _configure_cuda_paths():
+    """Preload pip-installed NVIDIA libraries so CTranslate2 can find them."""
+    try:
+        import ctypes
+
+        import nvidia.cublas
+        import nvidia.cudnn
+
+        cudnn_dir = os.path.join(os.path.dirname(nvidia.cudnn.__file__), "lib")
+        cublas_dir = os.path.join(os.path.dirname(nvidia.cublas.__file__), "lib")
+
+        for lib_dir, pattern in [
+            (cublas_dir, "libcublas.so"),
+            (cudnn_dir, "libcudnn_ops.so"),
+            (cudnn_dir, "libcudnn_cnn.so"),
+            (cudnn_dir, "libcudnn.so"),
+        ]:
+            for f in sorted(os.listdir(lib_dir)):
+                if f.startswith(pattern.replace(".so", "")) and ".so" in f:
+                    ctypes.CDLL(os.path.join(lib_dir, f), mode=ctypes.RTLD_GLOBAL)
+                    break
+    except (ImportError, OSError) as e:
+        logging.debug(f"CUDA library preload skipped: {e}")
 
 
 def _is_model_cached(model_size):
@@ -112,6 +138,8 @@ def _load_whisper_model(model_size, device, compute_type, quiet=False):
 
     if not _is_model_cached(model_size):
         _download_model_with_progress(model_size, quiet)
+
+    _configure_cuda_paths()
 
     logging.info(f"Loading Whisper model ({model_size})...")
     model = WhisperModel(
