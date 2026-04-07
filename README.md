@@ -6,14 +6,17 @@ Linux voice dictation - speak into your mic, text appears at your cursor. Powere
 
 - **Real-time streaming**: Words appear and self-correct as you speak
 - **Spoken formatting commands**: Say "slash", "comma", "open parenthesis", etc. to insert symbols
+- **GPU-accelerated**: Runs on NVIDIA GPUs by default, freeing your CPU for other tasks
 - **Daemon architecture**: Whisper model stays loaded in memory for fast transcription
 - **Desktop integration**: Types text directly at your cursor via `xdotool`
-- **Desktop notifications**: Visual feedback for daemon loading and errors
+- **Desktop notifications**: Visual feedback for daemon loading, download progress, and errors
 
 ## System Requirements
 
 - **OS**: Linux with X11 (tested on Debian/Ubuntu)
 - **Python**: 3.8+
+- **GPU (recommended)**: NVIDIA GPU with CUDA support - offloads transcription from CPU for better multitasking
+- **CPU-only**: Works without a GPU using `--device cpu --compute-type int8`
 - **System tools**: `xdotool`, `notify-send` (libnotify)
 
 ```bash
@@ -27,17 +30,24 @@ sudo dnf install xdotool libnotify
 sudo pacman -S xdotool libnotify
 ```
 
+For GPU support, install with the `cuda` extra: `pip install -e ".[cuda]"`
+
 ## Installation
 
 ```bash
 git clone https://github.com/tnrzk13/voice-dictation.git
 cd voice-dictation
+
+# CPU-only
 pip install -e .
+
+# With GPU support (NVIDIA CUDA)
+pip install -e ".[cuda]"
 ```
 
 This installs three commands: `dictate`, `dictate-daemon`, and `dictate-stop`.
 
-The Whisper model downloads automatically on first use (~800MB for the default `large-v3-turbo`).
+The Whisper model downloads automatically on first use (~800MB for the default `large-v3-turbo`), with desktop notifications showing download progress.
 
 ## Usage
 
@@ -50,6 +60,9 @@ dictate --no-stream
 
 # Use a different model or device
 dictate --model base --device cpu --compute-type int8
+
+# Suppress download progress notifications
+dictate --quiet
 
 # Press Enter or Escape to stop recording
 ```
@@ -147,7 +160,7 @@ MAX_WINDOW_SECONDS = 20   # finalize segments when audio exceeds this
  at cursor
 ```
 
-The daemon keeps the Whisper model loaded in memory - no startup delay after the first launch.
+The daemon keeps the Whisper model loaded in GPU memory - no startup delay after the first launch. Running on GPU keeps the CPU free for your IDE, browser, and other apps.
 
 ## Project Structure
 
@@ -190,9 +203,19 @@ rm /tmp/dictate-live-daemon.sock
 - X11 required - Wayland is not supported
 
 ### Model download issues
-The first run downloads the Whisper model (size varies by model). If it fails:
+The first run downloads the Whisper model (size varies by model). Progress notifications appear at every 10%. Use `--quiet` to suppress them. If the download fails:
 ```bash
 python -c "from faster_whisper import WhisperModel; WhisperModel('large-v3-turbo')"
+```
+
+### CUDA errors
+If you see `Unable to load libcudnn` errors, install with GPU support:
+```bash
+pip install -e ".[cuda]"
+```
+The daemon automatically preloads pip-installed NVIDIA libraries. To fall back to CPU:
+```bash
+dictate --device cpu --compute-type int8
 ```
 
 ## Dependencies
@@ -201,6 +224,7 @@ python -c "from faster_whisper import WhisperModel; WhisperModel('large-v3-turbo
 - `sounddevice` - Microphone input
 - `faster-whisper` - Whisper model inference (CTranslate2, CPU and GPU)
 - `pynput` - Keyboard monitoring
+- `nvidia-cudnn-cu12` (optional, `pip install -e ".[cuda]"`) - CUDA support for GPU inference
 
 ## License
 
