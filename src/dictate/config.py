@@ -11,7 +11,13 @@ BYTES_PER_SECOND = SAMPLE_RATE * BYTES_PER_SAMPLE
 # Whisper Model
 WHISPER_MODEL_SIZE = "large-v3-turbo"
 WHISPER_DEVICE = "cuda"
-WHISPER_COMPUTE_TYPE = "float16"
+WHISPER_COMPUTE_TYPE = "int8_float16"
+
+# Transcription
+WHISPER_BEAM_SIZE = 3
+WHISPER_TEMPERATURE = 0.0
+WHISPER_VAD_FILTER = True
+WHISPER_VAD_MIN_SILENCE_MS = 500
 
 # Transcription Timing
 TRANSCRIBE_INTERVAL = 2  # seconds between transcription cycles

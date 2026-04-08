@@ -33,10 +33,14 @@ from dictate.config import (
     MAX_WINDOW_SECONDS,
     SOCKET_PATH,
     TRANSCRIBE_INTERVAL,
+    WHISPER_BEAM_SIZE,
     WHISPER_COMPUTE_TYPE,
     WHISPER_DEVICE,
     WHISPER_HOTWORDS,
     WHISPER_MODEL_SIZE,
+    WHISPER_TEMPERATURE,
+    WHISPER_VAD_FILTER,
+    WHISPER_VAD_MIN_SILENCE_MS,
 )
 from dictate.daemon_support import (
     cleanup_socket,
@@ -306,7 +310,15 @@ def _transcribe(model, audio_bytes: bytes) -> list:
     need the full text can join segment texts.
     """
     audio = _pcm_to_float32(audio_bytes)
-    segments, _ = model.transcribe(audio, language="en", beam_size=1, hotwords=WHISPER_HOTWORDS)
+    segments, _ = model.transcribe(
+        audio,
+        language="en",
+        beam_size=WHISPER_BEAM_SIZE,
+        temperature=WHISPER_TEMPERATURE,
+        vad_filter=WHISPER_VAD_FILTER,
+        vad_parameters=dict(min_silence_duration_ms=WHISPER_VAD_MIN_SILENCE_MS),
+        hotwords=WHISPER_HOTWORDS,
+    )
     return [{"text": seg.text, "start": seg.start, "end": seg.end} for seg in segments]
 
 
