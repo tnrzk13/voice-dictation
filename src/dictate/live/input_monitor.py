@@ -20,7 +20,7 @@ STARTUP_GRACE_PERIOD = 1.0  # seconds to ignore clicks after monitor starts
 _STOP_KEYS = {keyboard.Key.enter}
 
 
-class KeyboardMonitor:
+class InputMonitor:
     """Monitors for physical keyboard/mouse activity, ignoring programmatic typing."""
 
     def __init__(self, stop_event: threading.Event, typer) -> None:

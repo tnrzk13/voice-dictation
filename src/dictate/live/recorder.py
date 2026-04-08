@@ -17,7 +17,7 @@ import sounddevice as sd
 from dictate.config import SAMPLE_RATE
 
 from .client import LiveDaemonClient
-from .keyboard_monitor import KeyboardMonitor
+from .input_monitor import InputMonitor
 
 
 class LiveRecorder:
@@ -59,7 +59,7 @@ class LiveRecorder:
     def _start_keyboard_monitor(self):
         if self._typer is None:
             return None
-        monitor = KeyboardMonitor(self._stop, self._typer)
+        monitor = InputMonitor(self._stop, self._typer)
         monitor.start()
         return monitor
 
