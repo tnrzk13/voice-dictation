@@ -38,6 +38,8 @@ from dictate.config import (
     WHISPER_DEVICE,
     WHISPER_HOTWORDS,
     WHISPER_MODEL_SIZE,
+    WHISPER_NO_REPEAT_NGRAM_SIZE,
+    WHISPER_REPETITION_PENALTY,
     WHISPER_TEMPERATURE,
     WHISPER_VAD_FILTER,
     WHISPER_VAD_MIN_SILENCE_MS,
@@ -318,6 +320,8 @@ def _transcribe(model, audio_bytes: bytes) -> list:
         vad_filter=WHISPER_VAD_FILTER,
         vad_parameters=dict(min_silence_duration_ms=WHISPER_VAD_MIN_SILENCE_MS),
         hotwords=WHISPER_HOTWORDS,
+        repetition_penalty=WHISPER_REPETITION_PENALTY,
+        no_repeat_ngram_size=WHISPER_NO_REPEAT_NGRAM_SIZE,
     )
     return [{"text": seg.text, "start": seg.start, "end": seg.end} for seg in segments]
 
