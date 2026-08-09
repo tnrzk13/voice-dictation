@@ -11,7 +11,14 @@ import socket
 import threading
 from typing import Optional
 
-from dictate.config import DAEMON_POLL_INTERVAL, DAEMON_STARTUP_TIMEOUT, SOCKET_PATH
+from dictate.config import (
+    DAEMON_FINISH_TIMEOUT,
+    DAEMON_POLL_INTERVAL,
+    DAEMON_STARTUP_TIMEOUT,
+    MESSAGE_RECV_BUFFER_BYTES,
+    SOCKET_PATH,
+    SOCKET_TIMEOUT,
+)
 from dictate.daemon_support import is_daemon_running, start_daemon_process
 
 from .typer import ProgressiveTyper
@@ -45,9 +52,11 @@ class LiveDaemonClient:
         self._on_disconnect = event
 
     def connect(self) -> None:
-        """Connect to the daemon socket."""
+        """Connect to the daemon socket with a timeout."""
         self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._sock.settimeout(SOCKET_TIMEOUT)
         self._sock.connect(SOCKET_PATH)
+        self._sock.settimeout(None)  # results may take an unbounded time to transcribe
         self._done.clear()
         self._receiver_thread = threading.Thread(
             target=self._receive_messages, daemon=True
@@ -73,7 +82,7 @@ class LiveDaemonClient:
             self._sock.shutdown(socket.SHUT_WR)
         except OSError:
             pass
-        self._done.wait(timeout=5.0)
+        self._done.wait(timeout=DAEMON_FINISH_TIMEOUT)
         self._close()
 
     def _close(self) -> None:
@@ -90,7 +99,7 @@ class LiveDaemonClient:
         buffer = b""
         try:
             while True:
-                chunk = self._sock.recv(4096)
+                chunk = self._sock.recv(MESSAGE_RECV_BUFFER_BYTES)
                 if not chunk:
                     break
                 buffer += chunk

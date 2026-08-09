@@ -40,6 +40,15 @@ DAEMON_LOG = os.path.expanduser("~/.local/share/voice-dictation/live-daemon.log"
 DAEMON_STARTUP_TIMEOUT = 10  # seconds - Whisper model load (no download)
 DAEMON_DOWNLOAD_TIMEOUT = 300  # seconds - first-time model download + load
 DAEMON_POLL_INTERVAL = 0.1
+DAEMON_FINISH_TIMEOUT = 30  # seconds - wait for daemon final results after EOF
+
+# Socket
+SOCKET_TIMEOUT = 5  # seconds - connect and daemon recv timeouts so hangs fail cleanly
+AUDIO_RECV_BUFFER_BYTES = 8000  # bytes read per socket recv in the daemon receiver
+MESSAGE_RECV_BUFFER_BYTES = 4096  # bytes read per socket recv for JSON messages
+
+# Buffering
+MAX_BUFFER_SECONDS = 60  # hard cap on audio buffer growth when model is slow
 
 # Stability - auto-commit words consistent across consecutive partials
 STABILITY_THRESHOLD = 2       # consecutive agreeing partials before auto-commit

@@ -76,12 +76,36 @@ def create_daemon_socket(socket_path: str) -> socket.socket:
 
 def wait_for_socket(socket_path: str, timeout: float, poll_interval: float) -> bool:
     """Poll until the daemon is accepting connections or timeout expires."""
-    iterations = int(timeout / poll_interval)
-    for _ in range(iterations):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
         time.sleep(poll_interval)
         if is_daemon_running(socket_path):
             return True
     return False
+
+
+def _start_daemon_command(
+    entry_point: str,
+    module_path: str,
+    extra_args: List[str],
+) -> subprocess.Popen:
+    """Launch the daemon, falling back to module execution if entry point is missing."""
+    try:
+        return subprocess.Popen(
+            [entry_point] + extra_args,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            env=os.environ.copy(),
+        )
+    except FileNotFoundError:
+        return subprocess.Popen(
+            [sys.executable, "-m", module_path] + extra_args,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            env=os.environ.copy(),
+        )
 
 
 def start_daemon_process(
@@ -92,26 +116,21 @@ def start_daemon_process(
     poll_interval: float,
     extra_args: Optional[List[str]] = None,
 ) -> bool:
-    """Start a daemon subprocess, trying entry point first then module fallback."""
-    suffix = extra_args or []
-    try:
-        subprocess.Popen(
-            [entry_point] + suffix,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-            env=os.environ.copy(),
-        )
-    except FileNotFoundError:
-        subprocess.Popen(
-            [sys.executable, "-m", module_path] + suffix,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-            env=os.environ.copy(),
-        )
+    """Start a daemon subprocess and verify it is alive and accepting connections."""
+    proc = _start_daemon_command(entry_point, module_path, extra_args or [])
 
-    return wait_for_socket(socket_path, timeout, poll_interval)
+    if proc.poll() is not None:
+        logging.error(f"Daemon process exited immediately (code {proc.returncode})")
+        return False
+
+    if not wait_for_socket(socket_path, timeout, poll_interval):
+        return False
+
+    if proc.poll() is not None:
+        logging.error(f"Daemon process died after socket appeared (code {proc.returncode})")
+        return False
+
+    return True
 
 
 def is_daemon_running(socket_path: str) -> bool:

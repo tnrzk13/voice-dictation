@@ -21,9 +21,9 @@ Audio arrives via a **callback function** on a dedicated thread managed by sound
 
 The daemon uses **faster-whisper** (an optimized version of OpenAI's Whisper model). The default runs on GPU with `int8_float16` precision; CPU-only mode uses `int8`. The model stays loaded in memory between dictation sessions so you don't pay the load time after the first run.
 
-When a client connects, the daemon spawns **two threads per connection**:
+Each client connection is handled in its own daemon thread, so the main thread can accept new connections while others are transcribing. Each connection then spawns **two worker threads**:
 
-1. **Receiver thread** - Reads raw PCM bytes off the socket and appends them to an `audio_buffer` (a growing `bytearray`).
+1. **Receiver thread** - Reads raw PCM bytes off the socket and appends them to an `audio_buffer` (a growing `bytearray`). If the model falls behind, the buffer is capped at 60 seconds and the oldest audio is dropped to prevent unbounded memory growth.
 2. **Transcriber thread** - Every **2 seconds**, takes a snapshot of the accumulated audio buffer, converts it to float32, and runs Whisper inference on it.
 
 ### Partial vs Final results

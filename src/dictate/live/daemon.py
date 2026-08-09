@@ -19,17 +19,21 @@ Protocol:
 import argparse
 import json
 import logging
+import signal
 import socket
 import threading
 
 import numpy as np
 
 from dictate.config import (
+    AUDIO_RECV_BUFFER_BYTES,
     BYTES_PER_SAMPLE,
     BYTES_PER_SECOND,
     DAEMON_LOG,
+    MAX_BUFFER_SECONDS,
     MAX_WINDOW_SECONDS,
     SOCKET_PATH,
+    SOCKET_TIMEOUT,
     TRANSCRIBE_INTERVAL,
     WHISPER_BEAM_SIZE,
     WHISPER_HOTWORDS,
@@ -46,11 +50,6 @@ from dictate.daemon_support import (
     write_daemon_config,
 )
 from dictate.model_loader import add_model_args, load_whisper_model
-from dictate.daemon_support import (
-    cleanup_socket,
-    create_daemon_socket,
-    setup_daemon_logging,
-)
 
 
 def handle_client(connection: socket.socket, model) -> None:
@@ -84,18 +83,40 @@ def _receive_audio(
     buffer_lock: threading.Lock,
     client_done: threading.Event,
 ) -> None:
-    """Receiver thread: read raw PCM bytes from socket into shared buffer."""
+    """Receiver thread: read raw PCM bytes from socket into shared buffer.
+
+    Drops the oldest audio if the buffer grows beyond MAX_BUFFER_SECONDS,
+    preventing unbounded memory use when the model is slower than real-time.
+    """
+    connection.settimeout(SOCKET_TIMEOUT)
+    max_buffer_bytes = MAX_BUFFER_SECONDS * BYTES_PER_SECOND
+
     try:
         while True:
-            data = connection.recv(8000)
+            try:
+                data = connection.recv(AUDIO_RECV_BUFFER_BYTES)
+            except socket.timeout:
+                continue
             if not data:
                 break
             with buffer_lock:
                 audio_buffer.extend(data)
+                if len(audio_buffer) > max_buffer_bytes:
+                    _trim_oldest_audio(audio_buffer, max_buffer_bytes)
     except (ConnectionResetError, BrokenPipeError, OSError):
         pass
     finally:
         client_done.set()
+
+
+def _trim_oldest_audio(audio_buffer: bytearray, max_bytes: int) -> None:
+    """Trim audio from the front of the buffer to keep it under max_bytes."""
+    excess = len(audio_buffer) - max_bytes
+    if excess <= 0:
+        return
+    trim = excess - excess % BYTES_PER_SAMPLE
+    del audio_buffer[:trim]
+    logging.warning(f"Audio buffer overflow: dropped {trim} bytes of old audio")
 
 
 def _transcribe_loop(
@@ -235,6 +256,21 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _install_signal_handlers(sock_ref: list) -> None:
+    """Close the listening socket on SIGTERM/SIGINT so accept() exits cleanly."""
+    def _on_signal(signum: int, _frame) -> None:
+        logging.info(f"Received signal {signum}, shutting down.")
+        sock = sock_ref[0]
+        if sock is not None:
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+    signal.signal(signal.SIGTERM, _on_signal)
+    signal.signal(signal.SIGINT, _on_signal)
+
+
 def main() -> None:
     """Main daemon entry point - load model and listen for connections."""
     setup_daemon_logging(DAEMON_LOG)
@@ -253,32 +289,43 @@ def main() -> None:
     sock = create_daemon_socket(SOCKET_PATH)
     logging.info(f"Daemon ready on {SOCKET_PATH}")
 
+    sock_ref = [sock]
+    _install_signal_handlers(sock_ref)
+
     try:
         _accept_connections(sock, model)
-    except KeyboardInterrupt:
-        logging.info("Daemon shutting down.")
     finally:
         sock.close()
         cleanup_socket(SOCKET_PATH)
 
 
 def _accept_connections(sock: socket.socket, model) -> None:
-    """Accept client connections in a loop."""
+    """Accept client connections and handle each session in its own thread."""
     while True:
-        connection = None
         try:
             connection, _ = sock.accept()
-            logging.info("Client connected.")
-            handle_client(connection, model)
-            logging.info("Client session ended.")
-        except OSError as e:
-            logging.error(f"Socket error: {e}")
-        finally:
-            if connection:
-                try:
-                    connection.close()
-                except OSError:
-                    pass
+        except OSError:
+            break
+        threading.Thread(
+            target=_handle_client_session,
+            args=(connection, model),
+            daemon=True,
+        ).start()
+
+
+def _handle_client_session(connection: socket.socket, model) -> None:
+    """Run a single client session and ensure the connection is closed."""
+    try:
+        logging.info("Client connected.")
+        handle_client(connection, model)
+        logging.info("Client session ended.")
+    except Exception as e:
+        logging.error(f"Error handling client: {e}", exc_info=True)
+    finally:
+        try:
+            connection.close()
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":

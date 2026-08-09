@@ -5,6 +5,7 @@ streaming transcription - words appear as you speak.
 """
 
 import argparse
+import socket
 import sys
 
 from dictate.config import SAMPLE_RATE, SOCKET_PATH
@@ -113,7 +114,11 @@ def _run_dictation(args: argparse.Namespace) -> None:
         streaming=not args.no_stream,
         stop_event=stop_event,
     )
-    client.connect()
+    try:
+        client.connect()
+    except (socket.timeout, OSError) as e:
+        print(f"Error: Could not connect to daemon: {e}", file=sys.stderr)
+        sys.exit(1)
 
     recorder = LiveRecorder(
         client,

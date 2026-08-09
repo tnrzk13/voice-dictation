@@ -49,6 +49,8 @@ class ProgressiveTyper:
         Returns:
             Tuple of (backspaces_needed, text_to_type) for the display update.
         """
+        if not text.strip():
+            return 0, ""
         new_pending = self._strip_committed_prefix(text)
         new_pending = apply_formatting_commands(new_pending)
         new_pending = _capitalize_first(new_pending)
@@ -64,6 +66,8 @@ class ProgressiveTyper:
         Returns:
             Tuple of (backspaces_needed, text_to_type) for the display update.
         """
+        if not text.strip():
+            return 0, ""
         new_pending = self._strip_committed_prefix(text)
         new_pending = apply_formatting_commands(new_pending)
         capitalized = _capitalize_first(new_pending)
@@ -81,7 +85,13 @@ class ProgressiveTyper:
         Words that match at the start of both old and new pending for
         STABILITY_THRESHOLD consecutive calls get moved to _committed,
         making them immune to future Whisper revisions.
+
+        Skips auto-commit when either pending text contains formatting
+        whitespace (newlines or tabs) because split()/join would lose it.
         """
+        if _contains_formatting_whitespace(self._pending) or _contains_formatting_whitespace(new_pending):
+            self._stable_count = 0
+            return new_pending
         old_words = self._pending.split()
         new_words = new_pending.split()
         match = _count_common_prefix_words(old_words, new_words)
@@ -173,7 +183,7 @@ def _find_common_prefix_length(a: str, b: str) -> int:
     return limit
 
 
-_PUNCTUATION_RE = re.compile(r"[,.\?!]")
+_PUNCTUATION_RE = re.compile(r"[,\.\?!;:\"]")
 
 
 def _strip_punctuation(text: str) -> str:
@@ -181,3 +191,6 @@ def _strip_punctuation(text: str) -> str:
     return _PUNCTUATION_RE.sub("", text)
 
 
+def _contains_formatting_whitespace(text: str) -> bool:
+    """Return True if text contains whitespace produced by formatting commands."""
+    return "\n" in text or "\t" in text

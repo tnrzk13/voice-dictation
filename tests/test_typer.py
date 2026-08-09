@@ -586,3 +586,70 @@ class TestAutoCommitIntegration:
         # Tolerant prefix stripping handles the revision - text doesn't get stuck
         assert typer.committed.startswith(committed_snapshot)
         assert typer.displayed_text.startswith(committed_snapshot)
+
+
+@patch("dictate.live.typer._send_backspaces")
+@patch("dictate.live.typer._type_text")
+class TestEmptyPartials:
+    def test_empty_partial_does_not_delete_pending(self, mock_type, mock_bs):
+        """A transient empty partial from Whisper should not erase text."""
+        typer = ProgressiveTyper()
+        typer.apply_partial("hello")
+        mock_type.reset_mock()
+        mock_bs.reset_mock()
+        backspaces, typed = typer.apply_partial("")
+        assert backspaces == 0
+        assert typed == ""
+        assert typer.displayed_text == "Hello"
+        mock_bs.assert_not_called()
+        mock_type.assert_not_called()
+
+    def test_whitespace_only_partial_is_ignored(self, mock_type, mock_bs):
+        typer = ProgressiveTyper()
+        backspaces, typed = typer.apply_partial("   ")
+        assert backspaces == 0
+        assert typed == ""
+        mock_bs.assert_not_called()
+        mock_type.assert_not_called()
+
+
+@patch("dictate.live.typer._send_backspaces")
+@patch("dictate.live.typer._type_text")
+class TestAutoCommitFormattingWhitespace:
+    def test_no_auto_commit_when_newline_in_pending(self, mock_type, mock_bs):
+        """Auto-commit skips when a newline command would be lost."""
+        typer = ProgressiveTyper()
+        typer.apply_partial("hello new line world")
+        typer.apply_partial("hello new line world this")
+        typer.apply_partial("hello new line world this is")
+        assert typer.committed == ""
+        assert "\n" in typer.displayed_text
+
+    def test_no_auto_commit_when_tab_in_pending(self, mock_type, mock_bs):
+        typer = ProgressiveTyper()
+        typer.apply_partial("hello tab key world")
+        typer.apply_partial("hello tab key world this")
+        typer.apply_partial("hello tab key world this is")
+        assert typer.committed == ""
+        assert "\t" in typer.displayed_text
+
+
+@patch("dictate.live.typer._send_backspaces")
+@patch("dictate.live.typer._type_text")
+class TestStripPunctuationExpanded:
+    def test_semicolon_in_committed_is_ignored(self, mock_type, mock_bs):
+        """Semicolons in committed text do not break prefix matching."""
+        typer = ProgressiveTyper()
+        typer._committed = "Hello; world "
+        typer._pending = ""
+        backspaces, typed = typer.apply_partial("hello world this is new")
+        assert typed == "This is new"
+        assert typer.displayed_text == "Hello; world This is new"
+
+    def test_colon_in_committed_is_ignored(self, mock_type, mock_bs):
+        typer = ProgressiveTyper()
+        typer._committed = "Hello: world "
+        typer._pending = ""
+        backspaces, typed = typer.apply_partial("hello world this is new")
+        assert typed == "This is new"
+        assert typer.displayed_text == "Hello: world This is new"

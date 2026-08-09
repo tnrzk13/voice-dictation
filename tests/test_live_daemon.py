@@ -4,10 +4,12 @@ import json
 import time
 from unittest.mock import MagicMock, patch
 
+from dictate.config import BYTES_PER_SAMPLE
 from dictate.live.daemon import (
     _concat_transcriptions,
     _finalize_completed_segments,
     _send_message,
+    _trim_oldest_audio,
     handle_client,
 )
 
@@ -210,3 +212,16 @@ class TestHandleClient:
 
         # Should not raise
         handle_client(conn, model)
+
+
+class TestTrimOldestAudio:
+    def test_trims_to_max_bytes_aligned_to_int16(self):
+        audio = bytearray(b"\x00" * 100)
+        _trim_oldest_audio(audio, max_bytes=50)
+        assert len(audio) <= 50
+        assert len(audio) % BYTES_PER_SAMPLE == 0
+
+    def test_no_change_when_under_max(self):
+        audio = bytearray(b"\x00" * 40)
+        _trim_oldest_audio(audio, max_bytes=50)
+        assert len(audio) == 40
