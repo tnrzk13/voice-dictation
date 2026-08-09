@@ -7,12 +7,9 @@ streaming transcription - words appear as you speak.
 import argparse
 import sys
 
-from dictate.config import (
-    SAMPLE_RATE,
-    WHISPER_COMPUTE_TYPE,
-    WHISPER_DEVICE,
-    WHISPER_MODEL_SIZE,
-)
+from dictate.config import SAMPLE_RATE, SOCKET_PATH
+from dictate.daemon_support import read_daemon_config
+from dictate.model_loader import add_model_args, is_model_cached
 from dictate.system import check_dependencies_or_exit, notify
 
 
@@ -38,26 +35,7 @@ def parse_args() -> argparse.Namespace:
         metavar="RATE",
         help=f"Audio sample rate in Hz (default: {SAMPLE_RATE})",
     )
-    parser.add_argument(
-        "--model",
-        default=WHISPER_MODEL_SIZE,
-        help=f"Whisper model size (default: {WHISPER_MODEL_SIZE})",
-    )
-    parser.add_argument(
-        "--device",
-        default=WHISPER_DEVICE,
-        help=f"Compute device: cuda or cpu (default: {WHISPER_DEVICE})",
-    )
-    parser.add_argument(
-        "--compute-type",
-        default=WHISPER_COMPUTE_TYPE,
-        help=f"Model precision: float16, int8, etc. (default: {WHISPER_COMPUTE_TYPE})",
-    )
-    parser.add_argument(
-        "--quiet",
-        action="store_true",
-        help="Suppress download progress notifications",
-    )
+    add_model_args(parser)
     return parser.parse_args()
 
 
@@ -82,37 +60,44 @@ def main() -> None:
 
 
 def _ensure_daemon_running(args: argparse.Namespace) -> None:
-    """Start the daemon if it's not already running."""
+    """Start the daemon if it's not already running with matching config."""
     from dictate.config import DAEMON_DOWNLOAD_TIMEOUT, DAEMON_STARTUP_TIMEOUT
 
     from .client import LiveDaemonClient
 
-    if not LiveDaemonClient.is_daemon_running():
-        daemon_args = [
-            "--model", args.model,
-            "--device", args.device,
-            "--compute-type", args.compute_type,
-        ]
-        if args.quiet:
-            daemon_args.append("--quiet")
-        needs_download = not _is_model_cached(args.model)
-        timeout = DAEMON_DOWNLOAD_TIMEOUT if needs_download else DAEMON_STARTUP_TIMEOUT
-        if not LiveDaemonClient.start_daemon(
-            extra_args=daemon_args, timeout=timeout
-        ):
-            notify("Failed to start")
-            sys.exit(1)
+    if LiveDaemonClient.is_daemon_running() and _daemon_config_matches(args):
+        return
+
+    if LiveDaemonClient.is_daemon_running():
+        print("Daemon is running with a different model config; restarting it.")
+        stop_daemon()
+
+    daemon_args = [
+        "--model", args.model,
+        "--device", args.device,
+        "--compute-type", args.compute_type,
+    ]
+    if args.quiet:
+        daemon_args.append("--quiet")
+    needs_download = not is_model_cached(args.model)
+    timeout = DAEMON_DOWNLOAD_TIMEOUT if needs_download else DAEMON_STARTUP_TIMEOUT
+    if not LiveDaemonClient.start_daemon(
+        extra_args=daemon_args, timeout=timeout
+    ):
+        notify("Failed to start")
+        sys.exit(1)
 
 
-def _is_model_cached(model_size: str) -> bool:
-    """Check if the Whisper model is already downloaded."""
-    try:
-        from faster_whisper.utils import download_model
-
-        download_model(model_size, local_files_only=True)
-        return True
-    except Exception:
+def _daemon_config_matches(args: argparse.Namespace) -> bool:
+    """Check whether the running daemon was started with the same model args."""
+    config = read_daemon_config(SOCKET_PATH)
+    if not config:
         return False
+    return (
+        config.get("model") == args.model
+        and config.get("device") == args.device
+        and config.get("compute_type") == args.compute_type
+    )
 
 
 def _run_dictation(args: argparse.Namespace) -> None:

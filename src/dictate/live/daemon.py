@@ -19,9 +19,7 @@ Protocol:
 import argparse
 import json
 import logging
-import os
 import socket
-import sys
 import threading
 
 import numpy as np
@@ -34,10 +32,7 @@ from dictate.config import (
     SOCKET_PATH,
     TRANSCRIBE_INTERVAL,
     WHISPER_BEAM_SIZE,
-    WHISPER_COMPUTE_TYPE,
-    WHISPER_DEVICE,
     WHISPER_HOTWORDS,
-    WHISPER_MODEL_SIZE,
     WHISPER_NO_REPEAT_NGRAM_SIZE,
     WHISPER_REPETITION_PENALTY,
     WHISPER_TEMPERATURE,
@@ -48,113 +43,14 @@ from dictate.daemon_support import (
     cleanup_socket,
     create_daemon_socket,
     setup_daemon_logging,
+    write_daemon_config,
 )
-
-
-def _configure_cuda_paths():
-    """Preload pip-installed NVIDIA libraries so CTranslate2 can find them."""
-    try:
-        import ctypes
-
-        import nvidia.cublas
-        import nvidia.cudnn
-
-        cudnn_dir = os.path.join(os.path.dirname(nvidia.cudnn.__file__), "lib")
-        cublas_dir = os.path.join(os.path.dirname(nvidia.cublas.__file__), "lib")
-
-        for lib_dir, pattern in [
-            (cublas_dir, "libcublas.so"),
-            (cudnn_dir, "libcudnn_ops.so"),
-            (cudnn_dir, "libcudnn_cnn.so"),
-            (cudnn_dir, "libcudnn.so"),
-        ]:
-            for f in sorted(os.listdir(lib_dir)):
-                if f.startswith(pattern.replace(".so", "")) and ".so" in f:
-                    ctypes.CDLL(os.path.join(lib_dir, f), mode=ctypes.RTLD_GLOBAL)
-                    break
-    except (ImportError, OSError) as e:
-        logging.debug(f"CUDA library preload skipped: {e}")
-
-
-def _is_model_cached(model_size):
-    """Check if the model is already downloaded."""
-    try:
-        from faster_whisper.utils import download_model
-
-        download_model(model_size, local_files_only=True)
-        return True
-    except Exception:
-        return False
-
-
-def _download_model_with_progress(model_size, quiet):
-    """Download the model with optional desktop notification progress."""
-    from dictate.system import notify
-    from faster_whisper.utils import _MODELS
-
-    import huggingface_hub
-    from tqdm import tqdm
-
-    repo_id = _MODELS.get(model_size, model_size)
-    allow_patterns = [
-        "config.json",
-        "preprocessor_config.json",
-        "model.bin",
-        "tokenizer.json",
-        "vocabulary.*",
-    ]
-
-    notify_fn = notify if not quiet else lambda msg: None
-    last_milestone = [0]
-
-    class ProgressTqdm(tqdm):
-        def update(self, n=1):
-            super().update(n)
-            if not self.total or "Fetching" in (self.desc or ""):
-                return
-            percent = int(self.n / self.total * 100)
-            milestone = percent // 10 * 10
-            if milestone > last_milestone[0]:
-                last_milestone[0] = milestone
-                notify_fn(f"Downloading {model_size}: {milestone}%")
-
-    logging.info(f"Downloading model {model_size} ({repo_id})...")
-    notify_fn(f"Downloading {model_size}...")
-
-    huggingface_hub.snapshot_download(
-        repo_id,
-        allow_patterns=allow_patterns,
-        tqdm_class=ProgressTqdm,
-    )
-
-    logging.info("Download complete.")
-    notify_fn(f"Download complete - loading {model_size}")
-
-
-def _load_whisper_model(model_size, device, compute_type, quiet=False):
-    """Load faster-whisper model, downloading with progress if needed."""
-    try:
-        from faster_whisper import WhisperModel
-    except ImportError:
-        logging.error(
-            "faster-whisper package not installed. "
-            "Install with: pip install faster-whisper>=0.10.0"
-        )
-        sys.exit(1)
-
-    if not _is_model_cached(model_size):
-        _download_model_with_progress(model_size, quiet)
-
-    _configure_cuda_paths()
-
-    logging.info(f"Loading Whisper model ({model_size})...")
-    model = WhisperModel(
-        model_size,
-        device=device,
-        compute_type=compute_type,
-    )
-    logging.info("Whisper model loaded.")
-    return model
+from dictate.model_loader import add_model_args, load_whisper_model
+from dictate.daemon_support import (
+    cleanup_socket,
+    create_daemon_socket,
+    setup_daemon_logging,
+)
 
 
 def handle_client(connection: socket.socket, model) -> None:
@@ -335,26 +231,7 @@ def _send_message(connection: socket.socket, msg_type: str, text: str) -> None:
 def _parse_args() -> argparse.Namespace:
     """Parse daemon command-line arguments."""
     parser = argparse.ArgumentParser(description="Voice dictation daemon")
-    parser.add_argument(
-        "--model",
-        default=WHISPER_MODEL_SIZE,
-        help=f"Whisper model size (default: {WHISPER_MODEL_SIZE})",
-    )
-    parser.add_argument(
-        "--device",
-        default=WHISPER_DEVICE,
-        help=f"Compute device: cuda or cpu (default: {WHISPER_DEVICE})",
-    )
-    parser.add_argument(
-        "--compute-type",
-        default=WHISPER_COMPUTE_TYPE,
-        help=f"Model precision: float16, int8, etc. (default: {WHISPER_COMPUTE_TYPE})",
-    )
-    parser.add_argument(
-        "--quiet",
-        action="store_true",
-        help="Suppress download progress notifications",
-    )
+    add_model_args(parser)
     return parser.parse_args()
 
 
@@ -362,7 +239,16 @@ def main() -> None:
     """Main daemon entry point - load model and listen for connections."""
     setup_daemon_logging(DAEMON_LOG)
     args = _parse_args()
-    model = _load_whisper_model(args.model, args.device, args.compute_type, args.quiet)
+    write_daemon_config(
+        SOCKET_PATH,
+        {
+            "model": args.model,
+            "device": args.device,
+            "compute_type": args.compute_type,
+            "quiet": args.quiet,
+        },
+    )
+    model = load_whisper_model(args.model, args.device, args.compute_type, args.quiet)
 
     sock = create_daemon_socket(SOCKET_PATH)
     logging.info(f"Daemon ready on {SOCKET_PATH}")

@@ -19,7 +19,7 @@ Audio arrives via a **callback function** on a dedicated thread managed by sound
 
 ## Phase 2: Speech Recognition (`daemon.py`)
 
-The daemon uses **faster-whisper** (an optimized version of OpenAI's Whisper model, quantized to int8 for CPU speed). The model stays loaded in RAM between dictation sessions so you don't pay the 3-5 second load time after the first run.
+The daemon uses **faster-whisper** (an optimized version of OpenAI's Whisper model). The default runs on GPU with `int8_float16` precision; CPU-only mode uses `int8`. The model stays loaded in memory between dictation sessions so you don't pay the load time after the first run.
 
 When a client connects, the daemon spawns **two threads per connection**:
 
@@ -170,8 +170,8 @@ An `InputMonitor` runs two background threads using `pynput` - one for keyboard,
 | `BYTES_PER_SAMPLE` | 2 | int16 format |
 | `TRANSCRIBE_INTERVAL` | 2s | Time between Whisper runs |
 | `MAX_WINDOW_SECONDS` | 20s | Force finalize to cap buffer growth |
-| `WHISPER_MODEL_SIZE` | "base" | 150MB model, ~1s latency |
-| `XDOTOOL_KEYSTROKE_DELAY` | 5ms | Delay between typed characters |
+| `WHISPER_MODEL_SIZE` | "large-v3-turbo" | Default model, ~1.6 GB download |
+| `XDOTOOL_KEYSTROKE_DELAY` | 12ms | Delay between typed characters |
 | `BACKSPACE_SETTLE_DELAY` | 50ms | Pause after backspaces before typing |
 | `DAEMON_STARTUP_TIMEOUT` | 10s | Max wait for model to load |
 

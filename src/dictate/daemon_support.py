@@ -1,5 +1,6 @@
 """Shared daemon lifecycle helpers used by both batch and live modes."""
 
+import json
 import logging
 import os
 import socket
@@ -7,7 +8,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from .system import notify
 
@@ -30,6 +31,36 @@ def cleanup_socket(socket_path: str) -> None:
     """Remove existing socket file if present."""
     try:
         os.unlink(socket_path)
+    except FileNotFoundError:
+        pass
+
+
+def _daemon_config_path(socket_path: str) -> str:
+    """Path to the JSON file that stores the daemon's current model args."""
+    return socket_path + ".json"
+
+
+def write_daemon_config(socket_path: str, config: Dict[str, Any]) -> None:
+    """Write the daemon's model configuration next to its socket."""
+    path = _daemon_config_path(socket_path)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(config, f)
+
+
+def read_daemon_config(socket_path: str) -> Optional[Dict[str, Any]]:
+    """Read the daemon's model configuration if it exists and is valid."""
+    path = _daemon_config_path(socket_path)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+
+
+def cleanup_daemon_config(socket_path: str) -> None:
+    """Remove the daemon config file if present."""
+    try:
+        os.unlink(_daemon_config_path(socket_path))
     except FileNotFoundError:
         pass
 
@@ -124,6 +155,8 @@ def stop_daemon(
             os.remove(socket_path)
     except (OSError, PermissionError) as e:
         print(f"Warning: Could not remove socket file: {e}")
+
+    cleanup_daemon_config(socket_path)
 
     notify("Stopped")
 

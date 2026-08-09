@@ -47,7 +47,7 @@ pip install -e ".[cuda]"
 
 This installs three commands: `dictate`, `dictate-daemon`, and `dictate-stop`.
 
-The Whisper model downloads automatically on first use (~800MB for the default `large-v3-turbo`), with desktop notifications showing download progress.
+The Whisper model downloads automatically on first use (~1.6 GB for the default `large-v3-turbo`), with desktop notifications showing download progress.
 
 ## Usage
 
@@ -113,7 +113,7 @@ Full command list: `src/dictate/live/formatting.py`
 Pass `--model`, `--device`, and `--compute-type` to `dictate` or `dictate-daemon`:
 
 ```bash
-# Default: large-v3-turbo on GPU with float16
+# Default: large-v3-turbo on GPU with int8_float16
 dictate
 
 # CPU with smaller model
@@ -168,6 +168,7 @@ The daemon keeps the Whisper model loaded in GPU memory - no startup delay after
 voice-dictation/
 ├── src/dictate/
 │   ├── config.py            # Shared configuration (audio, Whisper)
+│   ├── model_loader.py      # Shared Whisper model loading and CLI args
 │   ├── daemon_support.py    # Shared daemon utilities (socket, logging, lifecycle)
 │   ├── system.py            # Desktop notifications, dependency checks
 │   ├── xdotool.py           # Text typing via xdotool
@@ -179,7 +180,7 @@ voice-dictation/
 │       ├── recorder.py      # Audio capture and streaming
 │       ├── typer.py         # Progressive diff-based typing
 │       ├── formatting.py    # Spoken command formatting (slash, comma, etc.)
-│       └── keyboard_monitor.py  # Keystroke detection to stop dictation
+│       └── input_monitor.py     # Keyboard/mouse input detection to stop dictation
 ├── tests/
 ├── scripts/
 ├── pyproject.toml
