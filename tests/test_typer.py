@@ -290,6 +290,42 @@ class TestFormattingIntegration:
 
 @patch("dictate.live.typer._send_backspaces")
 @patch("dictate.live.typer._type_text")
+class TestFormattingCommandPrefixStripping:
+    def test_retranscribed_partial_with_formatting_command_does_not_duplicate(self, mock_type, mock_bs):
+        """A fresh partial that repeats already-committed formatting commands
+        must be stripped to only the new suffix, not re-typed in full.
+        """
+        typer = ProgressiveTyper()
+        typer._committed = "Hello/world "
+        typer._pending = "How are"
+        backspaces, typed = typer.apply_partial("hello slash world how are you")
+        assert typed == " you"
+        assert typer.displayed_text == "Hello/world How are you"
+
+    def test_retranscribed_final_with_formatting_command_does_not_duplicate(self, mock_type, mock_bs):
+        """A final result that repeats already-committed formatting commands
+        must be stripped to only the new suffix.
+        """
+        typer = ProgressiveTyper()
+        typer._committed = "Tony/pictures "
+        typer._pending = "From the"
+        backspaces, typed = typer.apply_final("tony slash pictures from the beach")
+        assert typed == " beach "
+        assert typer.committed == "Tony/pictures From the beach "
+        assert typer.displayed_text == "Tony/pictures From the beach "
+
+    def test_retranscribed_partial_with_punctuation_command_does_not_duplicate(self, mock_type, mock_bs):
+        """A partial that repeats a committed 'period' command must not duplicate."""
+        typer = ProgressiveTyper()
+        typer._committed = "Hello. "
+        typer._pending = "How are"
+        backspaces, typed = typer.apply_partial("hello period how are you")
+        assert typed == " you"
+        assert typer.displayed_text == "Hello. How are you"
+
+
+@patch("dictate.live.typer._send_backspaces")
+@patch("dictate.live.typer._type_text")
 @patch("dictate.live.typer.time")
 class TestBackspaceSettleDelay:
     def test_sleeps_between_backspaces_and_typing(self, mock_time, mock_type, mock_bs):

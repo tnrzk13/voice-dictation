@@ -51,8 +51,8 @@ class ProgressiveTyper:
         """
         if not text.strip():
             return 0, ""
-        new_pending = self._strip_committed_prefix(text)
-        new_pending = apply_formatting_commands(new_pending)
+        formatted = apply_formatting_commands(text)
+        new_pending = self._strip_committed_prefix(formatted)
         new_pending = _capitalize_first(new_pending)
         new_pending = self._auto_commit_stable_words(new_pending)
         backspaces, to_type = self._compute_edit(self._pending, new_pending)
@@ -68,8 +68,8 @@ class ProgressiveTyper:
         """
         if not text.strip():
             return 0, ""
-        new_pending = self._strip_committed_prefix(text)
-        new_pending = apply_formatting_commands(new_pending)
+        formatted = apply_formatting_commands(text)
+        new_pending = self._strip_committed_prefix(formatted)
         capitalized = _capitalize_first(new_pending)
         spaced = capitalized + " "
         backspaces, to_type = self._compute_edit(self._pending, spaced)
@@ -120,12 +120,13 @@ class ProgressiveTyper:
         if not committed_words:
             return text
         text_words = text.split()
-        if len(text_words) < len(committed_words):
+        text_words_stripped = [_strip_punctuation(w) for w in text_words]
+        if len(text_words_stripped) < len(committed_words):
             return text
         max_allowed = max(MAX_PREFIX_MISMATCHES, int(len(committed_words) * MAX_PREFIX_MISMATCH_FRACTION))
         mismatches = 0
         for i, committed_word in enumerate(committed_words):
-            if text_words[i].lower() != committed_word.lower():
+            if text_words_stripped[i].lower() != committed_word.lower():
                 mismatches += 1
                 if mismatches > max_allowed:
                     return text
