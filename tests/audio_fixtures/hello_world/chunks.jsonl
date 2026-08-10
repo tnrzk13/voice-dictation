@@ -1,0 +1,4 @@
+{"type": "partial", "text": "Hello world, this is a tech."}
+{"type": "partial", "text": "Hello world, this is a test."}
+{"type": "final", "text": "Hello world, this is a test."}
+{"type": "end", "text": ""}

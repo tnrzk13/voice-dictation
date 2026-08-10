@@ -138,3 +138,6 @@ Thumbs.db
 /tmp/
 *.sock
 hotwords.txt
+
+# Local audio fixtures recorded by the user - never commit voice recordings
+tests/audio_fixtures_local/

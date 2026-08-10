@@ -1,0 +1,5 @@
+{"type": "partial", "text": "This is the first part."}
+{"type": "partial", "text": "This is the first part and this Is The Second Pop"}
+{"type": "partial", "text": "This is the first part. And this Is The Second Part"}
+{"type": "final", "text": "This is the first part. And this Is The Second Part"}
+{"type": "end", "text": ""}
