@@ -182,10 +182,63 @@ voice-dictation/
 │       ├── formatting.py    # Spoken command formatting (slash, comma, etc.)
 │       └── input_monitor.py     # Keyboard/mouse input detection to stop dictation
 ├── tests/
+│   ├── audio_fixtures/      # Committed synthetic baseline audio + golden chunks
+│   ├── audio_fixtures_local/# Gitignored: your own voice recordings (not committed)
+│   ├── test_*.py            # Unit and regression tests
+│   └── ...
+├── tools/
+│   ├── fixture_manager.py   # Tkinter GUI for recording and managing fixtures
+│   ├── record_local_fixtures.py  # CLI prompt-based recorder
+│   ├── capture_chunks.py    # Generate golden chunk sequences from audio
+│   ├── generate_audio_fixtures.py  # Generate synthetic baseline audio with gTTS
+│   └── fixture_definitions.py      # Shared edge-case scripts and directions
 ├── scripts/
 ├── pyproject.toml
 └── README.md
 ```
+
+## Testing
+
+### Unit tests
+
+Fast, deterministic tests for the chunk processor, formatting, and client/daemon protocol:
+
+```bash
+python -m pytest -q
+```
+
+### Audio regression tests
+
+Some tests replay captured chunk sequences from real audio to verify the end-to-end typed output. The committed `tests/audio_fixtures/` directory contains synthetic baseline audio. The gitignored `tests/audio_fixtures_local/` directory holds your own voice recordings.
+
+### Recording your own fixtures
+
+Use the GUI:
+
+```bash
+python tools/fixture_manager.py
+```
+
+Select an edge case, read the script and directions, click **Record**, then **Capture Chunks**.
+
+Or use the command-line recorder:
+
+```bash
+python tools/record_local_fixtures.py
+python tools/capture_chunks.py tests/audio_fixtures_local/*/*.wav \
+    --output-dir tests/audio_fixtures_local
+```
+
+### Regenerating baseline fixtures
+
+The committed synthetic fixtures can be regenerated from text with gTTS:
+
+```bash
+python tools/generate_audio_fixtures.py
+python tools/capture_chunks.py tests/audio_fixtures/*.wav
+```
+
+Your local recordings in `tests/audio_fixtures_local/` are never committed to GitHub.
 
 ## Troubleshooting
 
