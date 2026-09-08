@@ -4,7 +4,7 @@ import json
 import time
 from unittest.mock import MagicMock, patch
 
-from dictate.config import BYTES_PER_SAMPLE
+from dictate.config import BYTES_PER_SAMPLE, BYTES_PER_SECOND, KEEP_TAIL_SECONDS
 from dictate.live.daemon import (
     _concat_transcriptions,
     _finalize_completed_segments,
@@ -102,7 +102,7 @@ class TestFinalizeCompletedSegments:
             {"text": "we can", "start": 0.0, "end": 5.0},
             {"text": "do it", "start": 5.0, "end": 10.0},
         ]
-        finalized, _ = _finalize_completed_segments(segments, "", 320000)
+        finalized, _ = _finalize_completed_segments(segments, "")
         assert finalized == "we can"
 
     def test_accumulates_across_multiple_trims(self):
@@ -111,22 +111,41 @@ class TestFinalizeCompletedSegments:
             {"text": "we can", "start": 0.0, "end": 5.0},
             {"text": "do", "start": 5.0, "end": 7.0},
         ]
-        finalized, _ = _finalize_completed_segments(segments1, "", 224000)
+        finalized, _ = _finalize_completed_segments(segments1, "")
         assert finalized == "we can"
 
         segments2 = [
             {"text": "do it", "start": 0.0, "end": 3.0},
             {"text": "now", "start": 3.0, "end": 5.0},
         ]
-        finalized, _ = _finalize_completed_segments(segments2, finalized, 160000)
+        finalized, _ = _finalize_completed_segments(segments2, finalized)
         assert finalized == "we can do it"
 
-    def test_single_segment_force_finalizes(self):
-        """Single segment is force-finalized to cap buffer growth."""
+    def test_single_segment_keeps_tail_words(self):
+        """A long single segment finalizes all but a KEEP_TAIL_SECONDS tail."""
+        total_words = 10
+        duration = 10.0
+        words = " ".join(f"word{i}" for i in range(total_words))
+        segments = [{"text": words, "start": 0.0, "end": duration}]
+        finalized, bytes_trimmed = _finalize_completed_segments(segments, "")
+        kept_words = int(total_words * (KEEP_TAIL_SECONDS / duration))
+        finalized_count = total_words - kept_words
+        assert finalized == " ".join(f"word{i}" for i in range(finalized_count))
+        assert bytes_trimmed == finalized_count * BYTES_PER_SECOND
+
+    def test_single_segment_shorter_than_tail_keeps_all(self):
+        """A segment shorter than KEEP_TAIL_SECONDS stays in the buffer."""
+        segments = [{"text": "hello world", "start": 0.0, "end": 2.0}]
+        finalized, bytes_trimmed = _finalize_completed_segments(segments, "")
+        assert finalized == ""
+        assert bytes_trimmed == 0
+
+    def test_single_segment_single_word_keeps_all(self):
+        """A one-word segment cannot be split - finalize nothing."""
         segments = [{"text": "hello", "start": 0.0, "end": 5.0}]
-        finalized, bytes_trimmed = _finalize_completed_segments(segments, "", 64000)
-        assert finalized == "hello"
-        assert bytes_trimmed == 64000
+        finalized, bytes_trimmed = _finalize_completed_segments(segments, "")
+        assert finalized == ""
+        assert bytes_trimmed == 0
 
     def test_bytes_trimmed_aligned_to_int16(self):
         """Trimmed bytes are aligned to 2-byte int16 boundary."""
@@ -134,7 +153,7 @@ class TestFinalizeCompletedSegments:
             {"text": "hello", "start": 0.0, "end": 1.0},
             {"text": "world", "start": 1.5, "end": 3.0},
         ]
-        _, bytes_trimmed = _finalize_completed_segments(segments, "", 96000)
+        _, bytes_trimmed = _finalize_completed_segments(segments, "")
         assert bytes_trimmed % 2 == 0
         assert bytes_trimmed == 48000  # 1.5 * 32000 = 48000
 

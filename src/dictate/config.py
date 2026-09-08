@@ -24,6 +24,7 @@ WHISPER_REPETITION_PENALTY = 1.2
 # Transcription Timing
 TRANSCRIBE_INTERVAL = 2  # seconds between transcription cycles
 MAX_WINDOW_SECONDS = 20  # finalize segments when audio exceeds this length
+KEEP_TAIL_SECONDS = 3  # audio retained for context when finalizing a continuous segment
 
 # Vocabulary hints - bias Whisper toward domain-specific terms it often mishears
 # Loaded from hotwords.txt in the project root (one word/phrase per line)

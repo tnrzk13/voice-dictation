@@ -30,6 +30,7 @@ from dictate.config import (
     BYTES_PER_SAMPLE,
     BYTES_PER_SECOND,
     DAEMON_LOG,
+    KEEP_TAIL_SECONDS,
     MAX_BUFFER_SECONDS,
     MAX_WINDOW_SECONDS,
     SOCKET_PATH,
@@ -156,10 +157,11 @@ def _transcribe_loop(
         window_seconds = len(snapshot) / BYTES_PER_SECOND
         if window_seconds > MAX_WINDOW_SECONDS:
             finalized_text, bytes_trimmed = _finalize_completed_segments(
-                segments, finalized_text, len(snapshot)
+                segments, finalized_text
             )
-            with buffer_lock:
-                del audio_buffer[:bytes_trimmed]
+            if bytes_trimmed:
+                with buffer_lock:
+                    del audio_buffer[:bytes_trimmed]
 
     # Use last partial as the final when available - avoids re-running
     # Whisper inference which adds 2-5s latency on CPU. Fall back to
@@ -179,19 +181,17 @@ def _transcribe_loop(
     _send_message(connection, "end", "")
 
 
-def _finalize_completed_segments(segments, finalized_text, snapshot_bytes):
+def _finalize_completed_segments(segments, finalized_text):
     """Finalize segments and return how many bytes to trim from the buffer.
 
     Multi-segment: finalizes all but the last (in-progress) segment, trims
-    the completed portion. Single segment: force-finalizes everything to
-    cap buffer growth - audio arriving next cycle provides natural context.
+    the completed portion. Single segment (continuous speech): finalizes all
+    but a KEEP_TAIL_SECONDS tail and trims to that word boundary, so the
+    next cycle re-transcribes with leading context instead of from a cold
+    start mid-sentence.
     """
     if len(segments) <= 1:
-        for seg in segments:
-            finalized_text = _concat_transcriptions(finalized_text, seg["text"])
-        trim_bytes = snapshot_bytes - (snapshot_bytes % BYTES_PER_SAMPLE)
-        logging.info("Force-trimmed buffer (single segment)")
-        return finalized_text, trim_bytes
+        return _finalize_single_segment(segments, finalized_text)
 
     for seg in segments[:-1]:
         finalized_text = _concat_transcriptions(finalized_text, seg["text"])
@@ -199,6 +199,41 @@ def _finalize_completed_segments(segments, finalized_text, snapshot_bytes):
     last_start = segments[-1]["start"]
     trim_bytes = int(last_start * BYTES_PER_SECOND)
     trim_bytes -= trim_bytes % BYTES_PER_SAMPLE
+    return finalized_text, trim_bytes
+
+
+def _finalize_single_segment(segments, finalized_text):
+    """Finalize a single continuous segment while keeping a context tail.
+
+    Continuous speech yields one segment with no silence boundary to finalize
+    against. Finalize all but the last KEEP_TAIL_SECONDS of words and trim the
+    buffer to that word boundary. Returns (finalized_text, trim_bytes).
+    """
+    if not segments:
+        return finalized_text, 0
+
+    seg = segments[0]
+    words = seg["text"].split()
+    seg_duration = seg["end"] - seg["start"]
+    if len(words) < 2 or seg_duration <= KEEP_TAIL_SECONDS:
+        return finalized_text, 0
+
+    kept_words = int(len(words) * (KEEP_TAIL_SECONDS / seg_duration))
+    kept_words = max(kept_words, 1)
+    if kept_words >= len(words):
+        return finalized_text, 0
+
+    finalized_words = words[: len(words) - kept_words]
+    finalized_text = _concat_transcriptions(finalized_text, " ".join(finalized_words))
+
+    finalized_fraction = len(finalized_words) / len(words)
+    trim_seconds = seg["start"] + seg_duration * finalized_fraction
+    trim_bytes = int(trim_seconds * BYTES_PER_SECOND)
+    trim_bytes -= trim_bytes % BYTES_PER_SAMPLE
+    logging.info(
+        f"Finalized {len(finalized_words)}/{len(words)} words of single segment "
+        f"(kept {kept_words} words for context)"
+    )
     return finalized_text, trim_bytes
 
 
