@@ -32,7 +32,8 @@ Each client connection is handled in its own daemon thread, so the main thread c
 
 **Final results** are sent when:
 - You stop recording (the client shuts down its write side of the socket, the daemon sees EOF)
-- The audio buffer exceeds 20 seconds (forces a finalization to keep memory bounded)
+
+Completed segments are finalized continuously (see "The commit policy" below), not only at the end of a session.
 
 The protocol is newline-delimited JSON over the socket:
 ```
@@ -42,9 +43,9 @@ daemon -> client:  {"type": "final",   "text": "hello world."}
 daemon -> client:  {"type": "end",     "text": ""}
 ```
 
-### The 20-second window trick
+### The commit policy
 
-If you speak for longer than 20 seconds, the daemon finalizes all completed segments but **keeps the last segment's audio in the buffer**. This prevents the buffer from growing unboundedly while preserving context for the in-progress sentence.
+The daemon finalizes completed segments (bounded by silence) every cycle and keeps only the last segment's audio in the buffer. For continuous speech with no silence, it finalizes all but the last `KEEP_TAIL_SECONDS` (3s) of the segment. This keeps the buffer small for fast transcription while preserving context for the in-progress sentence.
 
 ## Phase 3: Text Formatting (`formatting.py`)
 
@@ -130,7 +131,7 @@ The key insight: **the typer never re-types text that's already correct on scree
 
 ### Prefix stripping (handling re-transcription)
 
-When the daemon trims its 20-second buffer and re-transcribes, the new partial includes text that was already finalized. The typer handles this with `_strip_committed_prefix()` - it compares words case-insensitively (ignoring punctuation differences) and strips any words that match the committed text, so only the genuinely new portion gets typed.
+When the daemon trims its buffer and re-transcribes, the new partial includes text that was already finalized. The typer handles this with `_strip_committed_prefix()` - it compares words case-insensitively (ignoring punctuation differences) and strips any words that match the committed text, so only the genuinely new portion gets typed.
 
 ## Phase 5: Keystroke Simulation (`xdotool.py`)
 
@@ -169,7 +170,7 @@ An `InputMonitor` runs two background threads using `pynput` - one for keyboard,
 | `SAMPLE_RATE` | 16000 | Whisper requirement |
 | `BYTES_PER_SAMPLE` | 2 | int16 format |
 | `TRANSCRIBE_INTERVAL` | 2s | Time between Whisper runs |
-| `MAX_WINDOW_SECONDS` | 20s | Force finalize to cap buffer growth |
+| `KEEP_TAIL_SECONDS` | 3s | Audio kept for context when finalizing a continuous segment |
 | `WHISPER_MODEL_SIZE` | "large-v3-turbo" | Default model, ~1.6 GB download |
 | `XDOTOOL_KEYSTROKE_DELAY` | 12ms | Delay between typed characters |
 | `BACKSPACE_SETTLE_DELAY` | 50ms | Pause after backspaces before typing |

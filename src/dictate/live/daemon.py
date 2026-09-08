@@ -32,7 +32,6 @@ from dictate.config import (
     DAEMON_LOG,
     KEEP_TAIL_SECONDS,
     MAX_BUFFER_SECONDS,
-    MAX_WINDOW_SECONDS,
     SOCKET_PATH,
     SOCKET_TIMEOUT,
     TRANSCRIBE_INTERVAL,
@@ -129,8 +128,9 @@ def _transcribe_loop(
 ) -> None:
     """Transcription loop: periodically transcribe accumulated audio.
 
-    When the audio window exceeds MAX_WINDOW_SECONDS, finalizes completed
-    segments and trims the buffer to keep transcription fast.
+    Finalizes completed segments (and the stable prefix of a continuous
+    segment) each cycle, trimming the buffer so only the in-progress tail is
+    re-transcribed with full context.
     """
     finalized_text = ""
     last_partial_text = ""
@@ -149,19 +149,16 @@ def _transcribe_loop(
             continue
 
         display_text = _concat_transcriptions(finalized_text, full_text)
-        if display_text == last_partial_text:
-            continue
-        last_partial_text = display_text
-        _send_message(connection, "partial", display_text)
+        if display_text != last_partial_text:
+            last_partial_text = display_text
+            _send_message(connection, "partial", display_text)
 
-        window_seconds = len(snapshot) / BYTES_PER_SECOND
-        if window_seconds > MAX_WINDOW_SECONDS:
-            finalized_text, bytes_trimmed = _finalize_completed_segments(
-                segments, finalized_text
-            )
-            if bytes_trimmed:
-                with buffer_lock:
-                    del audio_buffer[:bytes_trimmed]
+        finalized_text, bytes_trimmed = _finalize_completed_segments(
+            segments, finalized_text
+        )
+        if bytes_trimmed:
+            with buffer_lock:
+                del audio_buffer[:bytes_trimmed]
 
     # Use last partial as the final when available - avoids re-running
     # Whisper inference which adds 2-5s latency on CPU. Fall back to

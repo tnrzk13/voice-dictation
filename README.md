@@ -135,7 +135,7 @@ Edit `src/dictate/config.py`:
 
 ```python
 TRANSCRIBE_INTERVAL = 2   # seconds between transcription cycles
-MAX_WINDOW_SECONDS = 20   # finalize segments when audio exceeds this
+KEEP_TAIL_SECONDS = 3     # audio kept for context when finalizing a continuous segment
 ```
 
 ## Architecture

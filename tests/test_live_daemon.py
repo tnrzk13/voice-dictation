@@ -233,6 +233,38 @@ class TestHandleClient:
         handle_client(conn, model)
 
 
+class TestCommitPolicy:
+    @patch("dictate.live.daemon.TRANSCRIBE_INTERVAL", 0.01)
+    @patch("dictate.live.daemon._finalize_completed_segments")
+    def test_finalizes_segments_every_cycle_below_20_seconds(self, mock_finalize):
+        """Completed segments are finalized each cycle, not only after 20s."""
+        mock_finalize.return_value = ("", 0)
+        model = _make_whisper_model(
+            [
+                _make_segment(" Hello", 0.0, 0.5),
+                _make_segment(" world", 0.5, 1.0),
+            ]
+        )
+
+        conn = MagicMock()
+        audio = b"\x00" * 8000
+        calls = []
+
+        def recv_with_delay(size):
+            calls.append(1)
+            if len(calls) == 1:
+                return audio
+            time.sleep(0.1)
+            return b""
+
+        conn.recv.side_effect = recv_with_delay
+
+        handle_client(conn, model)
+
+        # 8000 bytes is 0.25s of audio, far below the old 20s window
+        assert mock_finalize.call_count >= 1
+
+
 class TestTrimOldestAudio:
     def test_trims_to_max_bytes_aligned_to_int16(self):
         audio = bytearray(b"\x00" * 100)
