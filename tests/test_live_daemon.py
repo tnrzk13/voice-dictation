@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from dictate.config import BYTES_PER_SAMPLE, BYTES_PER_SECOND, KEEP_TAIL_SECONDS
 from dictate.live.daemon import (
+    _collapse_repetitions,
     _concat_transcriptions,
     _finalize_completed_segments,
     _send_message,
@@ -276,3 +277,28 @@ class TestTrimOldestAudio:
         audio = bytearray(b"\x00" * 40)
         _trim_oldest_audio(audio, max_bytes=50)
         assert len(audio) == 40
+
+
+class TestCollapseRepetitions:
+    def test_collapses_repeated_phrase(self):
+        text = "shift super d to shift super d to kill the daemon"
+        assert _collapse_repetitions(text) == "shift super d to kill the daemon"
+
+    def test_collapses_case_insensitively(self):
+        text = "Shift Super D to shift super d to"
+        assert _collapse_repetitions(text) == "Shift Super D to"
+
+    def test_no_collapse_for_short_repeat(self):
+        assert _collapse_repetitions("no no") == "no no"
+
+    def test_no_collapse_when_no_repetition(self):
+        text = "shift super d to kill the daemon"
+        assert _collapse_repetitions(text) == text
+
+    def test_preserves_leading_space(self):
+        text = " shift super d to shift super d to"
+        assert _collapse_repetitions(text) == " shift super d to"
+
+    def test_collapses_three_word_phrase(self):
+        text = "one two three one two three four"
+        assert _collapse_repetitions(text) == "one two three four"

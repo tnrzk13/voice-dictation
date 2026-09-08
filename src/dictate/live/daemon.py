@@ -254,6 +254,26 @@ def _pcm_to_float32(audio_bytes: bytes) -> np.ndarray:
     return np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
 
 
+def _collapse_repetitions(text: str) -> str:
+    """Collapse immediately repeated phrases Whisper occasionally hallucinates.
+
+    Only 3+ word phrases collapse - shorter repeats like "no no" are real
+    speech. Preserves a leading space because segment texts are joined
+    without separators.
+    """
+    leading = " " if text.startswith(" ") else ""
+    words = text.split()
+    n = len(words)
+    for length in range(n // 2, 2, -1):
+        for i in range(n - 2 * length + 1):
+            first = words[i : i + length]
+            second = words[i + length : i + 2 * length]
+            if [w.lower() for w in first] == [w.lower() for w in second]:
+                collapsed = words[: i + length] + words[i + 2 * length :]
+                return _collapse_repetitions(leading + " ".join(collapsed))
+    return leading + " ".join(words)
+
+
 def _transcribe(model, audio_bytes: bytes) -> list:
     """Transcribe raw PCM int16 bytes, returning segment dicts.
 
@@ -272,7 +292,14 @@ def _transcribe(model, audio_bytes: bytes) -> list:
         repetition_penalty=WHISPER_REPETITION_PENALTY,
         no_repeat_ngram_size=WHISPER_NO_REPEAT_NGRAM_SIZE,
     )
-    return [{"text": seg.text, "start": seg.start, "end": seg.end} for seg in segments]
+    return [
+        {
+            "text": _collapse_repetitions(seg.text),
+            "start": seg.start,
+            "end": seg.end,
+        }
+        for seg in segments
+    ]
 
 
 def _send_message(connection: socket.socket, msg_type: str, text: str) -> None:
