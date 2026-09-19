@@ -1,13 +1,12 @@
 """Tests for ProgressiveTyper diff-based text correction."""
 
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 from dictate.live.typer import (
     ProgressiveTyper,
-    _count_common_prefix_words,
-    _find_common_prefix_length,
     _capitalize_first,
-    _strip_punctuation,
+    _finalized_prefix,
+    _find_common_prefix_length,
 )
 
 
@@ -26,26 +25,6 @@ class TestCapitalizeFirst:
 
     def test_preserves_rest(self):
         assert _capitalize_first("hELLO") == "HELLO"
-
-
-class TestStripPunctuation:
-    def test_removes_comma(self):
-        assert _strip_punctuation("hello, world") == "hello world"
-
-    def test_removes_period(self):
-        assert _strip_punctuation("hello world.") == "hello world"
-
-    def test_removes_question_mark(self):
-        assert _strip_punctuation("how are you?") == "how are you"
-
-    def test_removes_exclamation(self):
-        assert _strip_punctuation("wow!") == "wow"
-
-    def test_no_punctuation(self):
-        assert _strip_punctuation("hello world") == "hello world"
-
-    def test_empty_string(self):
-        assert _strip_punctuation("") == ""
 
 
 class TestFindCommonPrefixLength:
@@ -68,6 +47,22 @@ class TestFindCommonPrefixLength:
     def test_shorter_is_prefix_of_longer(self):
         assert _find_common_prefix_length("hel", "hello") == 3
         assert _find_common_prefix_length("hello", "hel") == 3
+
+
+class TestFinalizedPrefix:
+    def test_empty_finalized_yields_no_committed_text(self):
+        assert _finalized_prefix("Hello world", "") == ""
+
+    def test_returns_common_prefix_with_finalized(self):
+        assert _finalized_prefix("Hello world foo", "hello world") == "Hello world"
+
+    def test_trailing_formatting_command_merges_with_next_word(self):
+        """A finalized "slash" formats only once the next word is present."""
+        assert _finalized_prefix("Tony/pictures", "tony slash") == "Tony/"
+
+    def test_finalized_punctuation_not_present_in_target(self):
+        """Whisper may drop punctuation the finalized text carried."""
+        assert _finalized_prefix("Hello world again", "hello world.") == "Hello world"
 
 
 @patch("dictate.live.typer._send_backspaces")
@@ -121,16 +116,74 @@ class TestProgressiveTyperPartials:
 
 @patch("dictate.live.typer._send_backspaces")
 @patch("dictate.live.typer._type_text")
+class TestDaemonDrivenCommit:
+    def test_finalized_sets_committed_boundary(self, mock_type, mock_bs):
+        typer = ProgressiveTyper()
+        typer.apply_partial("hello world foo", finalized="hello world")
+        assert typer.committed == "Hello world"
+        assert typer.pending == " foo"
+        assert typer.displayed_text == "Hello world foo"
+
+    def test_without_finalized_nothing_is_committed(self, mock_type, mock_bs):
+        typer = ProgressiveTyper()
+        typer.apply_partial("hello world")
+        assert typer.committed == ""
+        assert typer.pending == "Hello world"
+
+    def test_committed_grows_as_finalized_grows(self, mock_type, mock_bs):
+        typer = ProgressiveTyper()
+        typer.apply_partial("picture slash pictures", finalized="")
+        assert typer.displayed_text == "Picture/pictures"
+
+        typer.apply_partial(
+            "picture slash pictures from", finalized="picture slash pictures"
+        )
+        assert typer.committed == "Picture/pictures"
+        assert typer.pending == " from"
+        assert typer.displayed_text == "Picture/pictures from"
+
+    def test_dropped_word_in_tail_does_not_duplicate(self, mock_type, mock_bs):
+        """Whisper deleting "Um" after it scrolled into the committed region
+        must correct in place, not retype the visible prefix.
+        """
+        typer = ProgressiveTyper()
+        typer.apply_partial("Great, I like this a lot better. Um, but can you")
+        typer.apply_partial(
+            "Great, I like this a lot better. Um, but can you tell me",
+            finalized="Great, I like this a lot better.",
+        )
+        typer.apply_partial(
+            "Great, I like this a lot better but can you tell me what's",
+            finalized="Great, I like this a lot better.",
+        )
+
+        text = typer.displayed_text
+        assert text.count("Great, I like this a lot better") == 1
+        assert text.endswith("but can you tell me what's")
+
+    def test_revision_inside_committed_region_corrects_in_place(self, mock_type, mock_bs):
+        typer = ProgressiveTyper()
+        typer.apply_partial("I saw a quick brown fox", finalized="I saw a quick")
+        assert typer.committed == "I saw a quick"
+
+        # "quick" is revised to "quik" after it was committed
+        typer.apply_partial("I saw a quik brown fox", finalized="I saw a quick")
+        assert typer.displayed_text.count("brown fox") == 1
+        assert "quick brown" not in typer.displayed_text
+
+
+@patch("dictate.live.typer._send_backspaces")
+@patch("dictate.live.typer._type_text")
 class TestProgressiveTyperFinals:
     def test_final_after_partial_only_adds_space(self, mock_type, mock_bs):
         """Partial already capitalized, so final just adds trailing space."""
         typer = ProgressiveTyper()
         typer.apply_partial("hello")
-        assert typer.pending == "Hello"
         backspaces, typed = typer.apply_final("hello world")
         assert backspaces == 0
         assert typed == " world "
         assert typer.committed == "Hello world "
+        assert typer.pending == ""
         assert typer.displayed_text == "Hello world "
 
     def test_final_without_partial(self, mock_type, mock_bs):
@@ -139,24 +192,6 @@ class TestProgressiveTyperFinals:
         assert backspaces == 0
         assert typed == "Hello "
         assert typer.committed == "Hello "
-
-    def test_final_capitalizes_each_sentence(self, mock_type, mock_bs):
-        typer = ProgressiveTyper()
-        typer.apply_final("hello")
-        typer.apply_final("world")
-        assert typer.committed == "Hello World "
-        assert typer.displayed_text == "Hello World "
-
-    def test_partials_after_final_capitalize_new_sentence(self, mock_type, mock_bs):
-        typer = ProgressiveTyper()
-        typer.apply_final("hello")
-        assert typer.committed == "Hello "
-
-        # First partial of new sentence capitalizes
-        backspaces, typed = typer.apply_partial("world")
-        assert backspaces == 0
-        assert typed == "World"
-        assert typer.displayed_text == "Hello World"
 
     def test_final_corrects_partial(self, mock_type, mock_bs):
         typer = ProgressiveTyper()
@@ -167,35 +202,12 @@ class TestProgressiveTyperFinals:
         assert typed == "lo "
         assert typer.committed == "Hello "
 
-    def test_case_insensitive_prefix_stripping(self, mock_type, mock_bs):
-        """Partial result may include previously committed text in lowercase."""
+    def test_final_uses_daemon_finalized_as_committed(self, mock_type, mock_bs):
         typer = ProgressiveTyper()
-        typer.apply_final("hello")
-        assert typer.committed == "Hello "
-        # Partial sends "hello world" (lowercase prefix matching committed)
-        backspaces, typed = typer.apply_partial("hello world")
-        assert typed == "World"
-        assert typer.displayed_text == "Hello World"
-
-    def test_prefix_stripping_ignores_punctuation_in_committed(self, mock_type, mock_bs):
-        """Committed text may have punctuation, but partials may not."""
-        typer = ProgressiveTyper()
-        # Simulate a punctuated final being committed
-        typer._committed = "Hello, world. "
-        typer._pending = ""
-        # Next partial arrives without punctuation
-        backspaces, typed = typer.apply_partial("hello world this is new")
-        assert typed == "This is new"
-        assert typer.displayed_text == "Hello, world. This is new"
-
-    def test_prefix_stripping_with_question_mark(self, mock_type, mock_bs):
-        """Question marks in committed text don't break prefix matching."""
-        typer = ProgressiveTyper()
-        typer._committed = "How are you? "
-        typer._pending = ""
-        backspaces, typed = typer.apply_partial("how are you doing")
-        assert typed == "Doing"
-        assert typer.displayed_text == "How are you? Doing"
+        typer.apply_partial("hello world foo", finalized="hello world")
+        typer.apply_final("hello world foo")
+        assert typer.committed == "Hello world foo "
+        assert typer.pending == ""
 
 
 @patch("dictate.live.typer._send_backspaces")
@@ -207,7 +219,7 @@ class TestProgressiveTyperXdotoolCalls:
         mock_type.reset_mock()
         mock_bs.reset_mock()
 
-        typer.apply_partial("hello")  # same text, no change
+        typer.apply_partial("hello", finalized="hello")  # same text, no change
         mock_bs.assert_not_called()
         mock_type.assert_not_called()
 
@@ -217,7 +229,7 @@ class TestProgressiveTyperXdotoolCalls:
         mock_type.reset_mock()
         mock_bs.reset_mock()
 
-        typer.apply_partial("axyz")  # pending is "Abc", new is "axyz" (not capitalized since pending exists)
+        typer.apply_partial("axyz")  # pending is "Abc", new is "Axyz"
         mock_bs.assert_called_once_with(2)
         mock_type.assert_called_once_with("xyz")
 
@@ -287,41 +299,21 @@ class TestFormattingIntegration:
         backspaces, typed = typer.apply_final("hello. period")
         assert typed == "Hello. "
 
-
-@patch("dictate.live.typer._send_backspaces")
-@patch("dictate.live.typer._type_text")
-class TestFormattingCommandPrefixStripping:
-    def test_retranscribed_partial_with_formatting_command_does_not_duplicate(self, mock_type, mock_bs):
-        """A fresh partial that repeats already-committed formatting commands
-        must be stripped to only the new suffix, not re-typed in full.
+    def test_retranscribed_partial_with_formatting_command_does_not_duplicate(
+        self, mock_type, mock_bs
+    ):
+        """A cumulative partial that repeats committed formatting commands is
+        diffed against the screen, so only the new suffix is typed.
         """
         typer = ProgressiveTyper()
-        typer._committed = "Hello/world "
-        typer._pending = "How are"
-        backspaces, typed = typer.apply_partial("hello slash world how are you")
-        assert typed == " you"
-        assert typer.displayed_text == "Hello/world How are you"
+        typer.apply_partial("hello slash world", finalized="")
+        assert typer.displayed_text == "Hello/world"
 
-    def test_retranscribed_final_with_formatting_command_does_not_duplicate(self, mock_type, mock_bs):
-        """A final result that repeats already-committed formatting commands
-        must be stripped to only the new suffix.
-        """
-        typer = ProgressiveTyper()
-        typer._committed = "Tony/pictures "
-        typer._pending = "From the"
-        backspaces, typed = typer.apply_final("tony slash pictures from the beach")
-        assert typed == " beach "
-        assert typer.committed == "Tony/pictures From the beach "
-        assert typer.displayed_text == "Tony/pictures From the beach "
-
-    def test_retranscribed_partial_with_punctuation_command_does_not_duplicate(self, mock_type, mock_bs):
-        """A partial that repeats a committed 'period' command must not duplicate."""
-        typer = ProgressiveTyper()
-        typer._committed = "Hello. "
-        typer._pending = "How are"
-        backspaces, typed = typer.apply_partial("hello period how are you")
-        assert typed == " you"
-        assert typer.displayed_text == "Hello. How are you"
+        backspaces, typed = typer.apply_partial(
+            "hello slash world how are you", finalized="hello slash world"
+        )
+        assert typed == " how are you"
+        assert typer.displayed_text == "Hello/world how are you"
 
 
 @patch("dictate.live.typer._send_backspaces")
@@ -358,272 +350,6 @@ class TestBackspaceSettleDelay:
         mock_type.assert_called_once_with("hello")
 
 
-class TestCountCommonPrefixWords:
-    def test_identical_lists(self):
-        assert _count_common_prefix_words(["a", "b", "c"], ["a", "b", "c"]) == 3
-
-    def test_partial_overlap(self):
-        assert _count_common_prefix_words(["a", "b", "c"], ["a", "b", "x"]) == 2
-
-    def test_no_overlap(self):
-        assert _count_common_prefix_words(["a"], ["b"]) == 0
-
-    def test_empty_lists(self):
-        assert _count_common_prefix_words([], []) == 0
-        assert _count_common_prefix_words(["a"], []) == 0
-        assert _count_common_prefix_words([], ["a"]) == 0
-
-    def test_case_insensitive(self):
-        assert _count_common_prefix_words(["Hello", "World"], ["hello", "world"]) == 2
-
-    def test_different_lengths(self):
-        assert _count_common_prefix_words(["a", "b"], ["a", "b", "c"]) == 2
-        assert _count_common_prefix_words(["a", "b", "c"], ["a", "b"]) == 2
-
-
-@patch("dictate.live.typer._send_backspaces")
-@patch("dictate.live.typer._type_text")
-class TestAutoCommitStableWords:
-    def test_no_commit_below_threshold(self, mock_type, mock_bs):
-        """One matching partial isn't enough to commit (threshold is 2)."""
-        typer = ProgressiveTyper()
-        typer.apply_partial("hello world foo bar")
-        typer.apply_partial("hello world foo bar baz")
-        # stable_count=1, below threshold - nothing committed
-        assert typer.committed == ""
-        assert "Hello world foo bar baz" in typer.displayed_text
-
-    def test_commits_after_threshold(self, mock_type, mock_bs):
-        """Two consecutive matching partials triggers auto-commit."""
-        typer = ProgressiveTyper()
-        typer.apply_partial("hello world foo bar")
-        typer.apply_partial("hello world foo bar baz")
-        typer.apply_partial("hello world foo bar baz qux")
-        # 3 words match ("Hello world foo") across 2 consecutive partials
-        # commit_count = match - KEEP_TAIL_WORDS = at least 1
-        assert typer.committed != ""
-
-    def test_keeps_tail_words_uncommitted(self, mock_type, mock_bs):
-        """Last KEEP_TAIL_WORDS words stay in pending for corrections."""
-        typer = ProgressiveTyper()
-        typer.apply_partial("alpha bravo charlie delta")
-        typer.apply_partial("alpha bravo charlie delta echo")
-        typer.apply_partial("alpha bravo charlie delta echo foxtrot")
-        # After 3rd partial: match=5 words, commit 5-2=3 words
-        # committed should have first 3 words, pending has last 2+ new
-        assert "Alpha bravo charlie " in typer.committed
-        assert typer.pending.startswith("Delta echo")
-
-    def test_no_commit_when_match_lte_keep_tail(self, mock_type, mock_bs):
-        """Don't commit if matching prefix is <= KEEP_TAIL_WORDS."""
-        typer = ProgressiveTyper()
-        typer.apply_partial("hello world")
-        typer.apply_partial("hello world")
-        typer.apply_partial("hello world")
-        # match=2, KEEP_TAIL_WORDS=2, so match <= KEEP_TAIL_WORDS - no commit
-        assert typer.committed == ""
-
-    def test_stability_resets_on_divergence(self, mock_type, mock_bs):
-        """Stability counter resets when words don't match."""
-        typer = ProgressiveTyper()
-        typer.apply_partial("hello world foo")
-        typer.apply_partial("hello world foo bar")
-        # stable_count=1
-        typer.apply_partial("completely different text here")
-        # stable_count reset to 0
-        typer.apply_partial("completely different text here now")
-        # stable_count=1 again, not enough
-        assert typer.committed == ""
-
-    def test_case_insensitive_matching(self, mock_type, mock_bs):
-        """Auto-commit uses case-insensitive matching for stability."""
-        typer = ProgressiveTyper()
-        # First partial capitalizes to "Hello world foo bar"
-        typer.apply_partial("hello world foo bar")
-        # Second partial: _capitalize_first -> "Hello world foo bar baz"
-        # Old pending "Hello world foo bar" vs new "Hello world foo bar baz"
-        # Case-insensitive match on all 4 words
-        typer.apply_partial("hello world foo bar baz")
-        typer.apply_partial("hello world foo bar baz qux")
-        # Should have committed despite capitalize_first casing
-        assert typer.committed != ""
-
-    def test_committed_prefix_stripping_after_auto_commit(self, mock_type, mock_bs):
-        """After auto-commit, _strip_committed_prefix removes committed words."""
-        typer = ProgressiveTyper()
-        typer.apply_partial("alpha bravo charlie delta")
-        typer.apply_partial("alpha bravo charlie delta echo")
-        typer.apply_partial("alpha bravo charlie delta echo foxtrot")
-        committed_before = typer.committed
-        # Next partial includes the committed words - they should be stripped
-        typer.apply_partial("alpha bravo charlie delta echo foxtrot golf")
-        # The committed text should still contain the auto-committed words
-        assert committed_before in typer.committed or typer.committed.startswith(committed_before)
-
-
-@patch("dictate.live.typer._send_backspaces")
-@patch("dictate.live.typer._type_text")
-class TestTolerantPrefixStripping:
-    def test_strips_with_zero_mismatches(self, mock_type, mock_bs):
-        """Exact match strips normally (existing behavior)."""
-        typer = ProgressiveTyper()
-        typer._committed = "Hello world "
-        typer._pending = ""
-        backspaces, typed = typer.apply_partial("hello world new stuff")
-        assert typed == "New stuff"
-
-    def test_strips_with_one_word_mismatch(self, mock_type, mock_bs):
-        """Whisper revises 'content' to 'context' - still strips prefix."""
-        typer = ProgressiveTyper()
-        typer._committed = "The content of this "
-        typer._pending = ""
-        backspaces, typed = typer.apply_partial("the context of this message")
-        assert typed == "Message"
-
-    def test_strips_at_max_mismatches(self, mock_type, mock_bs):
-        """Exactly MAX_PREFIX_MISMATCHES (3) mismatches still strips."""
-        typer = ProgressiveTyper()
-        typer._committed = "Alpha bravo charlie delta echo "
-        typer._pending = ""
-        # 3 of 5 words revised
-        backspaces, typed = typer.apply_partial("alfa brave charlie delt echo new words")
-        assert typed == "New words"
-
-    def test_fails_to_strip_beyond_max_mismatches(self, mock_type, mock_bs):
-        """More than MAX_PREFIX_MISMATCHES mismatches returns full text."""
-        typer = ProgressiveTyper()
-        typer._committed = "Alpha bravo charlie delta echo "
-        typer._pending = ""
-        # 4 of 5 words revised - exceeds limit
-        backspaces, typed = typer.apply_partial("alfa brave charly delt echo tail")
-        # Full text returned (capitalized), not stripped
-        assert "Alfa" in typed
-
-    def test_mismatch_at_start(self, mock_type, mock_bs):
-        """Mismatch on the first committed word still strips."""
-        typer = ProgressiveTyper()
-        typer._committed = "Content is important "
-        typer._pending = ""
-        backspaces, typed = typer.apply_partial("context is important here")
-        assert typed == "Here"
-
-    def test_mismatch_at_end(self, mock_type, mock_bs):
-        """Mismatch on the last committed word still strips."""
-        typer = ProgressiveTyper()
-        typer._committed = "The important content "
-        typer._pending = ""
-        backspaces, typed = typer.apply_partial("the important context is here")
-        assert typed == "Is here"
-
-    def test_mismatch_in_middle(self, mock_type, mock_bs):
-        """Mismatch in the middle of committed words still strips."""
-        typer = ProgressiveTyper()
-        typer._committed = "I like the content here "
-        typer._pending = ""
-        backspaces, typed = typer.apply_partial("I like the context here very much")
-        assert typed == "Very much"
-
-    def test_scales_tolerance_for_long_committed(self, mock_type, mock_bs):
-        """20+ committed words with 5 mismatches (within 30%) still strips."""
-        typer = ProgressiveTyper()
-        # 20 committed words - max allowed = max(3, int(20*0.3)) = max(3, 6) = 6
-        typer._committed = (
-            "I would like to visit Japan and see how a small "
-            "town operates during the winter festival season "
-        )
-        typer._pending = ""
-        # 5 words revised: "like"->"want", "Japan"->"Tokyo", "small"->"tiny",
-        # "operates"->"functions", "winter"->"summer"
-        partial = (
-            "I would want to visit Tokyo and see how a tiny "
-            "town functions during the summer festival season and more"
-        )
-        backspaces, typed = typer.apply_partial(partial)
-        assert typed == "And more"
-
-    def test_long_committed_fails_beyond_fraction(self, mock_type, mock_bs):
-        """20+ committed words with mismatches exceeding 30% returns full text."""
-        typer = ProgressiveTyper()
-        # 20 committed words - max allowed = 6
-        typer._committed = (
-            "I would like to visit Japan and see how a small "
-            "town operates during the winter festival season "
-        )
-        typer._pending = ""
-        # 7 words revised (exceeds 6 allowed)
-        partial = (
-            "I would want to explore Tokyo and watch how a tiny "
-            "city functions during the summer festival season tail"
-        )
-        backspaces, typed = typer.apply_partial(partial)
-        # Full text returned, not stripped
-        assert "I" in typed and "want" in typed
-
-    def test_real_world_whisper_revision_after_finalization(self, mock_type, mock_bs):
-        """Simulate 50+ word committed prefix with scattered Whisper revisions."""
-        typer = ProgressiveTyper()
-        # 52 committed words
-        typer._committed = (
-            "I would like to visit Japan and see how a small town "
-            "operates during the winter festival season because I have "
-            "always been fascinated by the culture and traditions of "
-            "the Japanese people especially their dedication to craft "
-            "and attention to detail in everything they do "
-        )
-        typer._pending = ""
-        # max allowed = max(3, int(52*0.3)) = max(3, 15) = 15
-        # 8 scattered revisions (well within 15)
-        partial = (
-            "I would want to visit Tokyo and see how a tiny town "
-            "functions during the summer festival time because I have "
-            "always been fascinated by the customs and traditions of "
-            "the Japanese people especially their commitment to craft "
-            "and attention to details in everything they do "
-            "which is truly remarkable"
-        )
-        backspaces, typed = typer.apply_partial(partial)
-        assert typed == "Which is truly remarkable"
-        assert typer.displayed_text.endswith("Which is truly remarkable")
-
-
-@patch("dictate.live.typer._send_backspaces")
-@patch("dictate.live.typer._type_text")
-class TestAutoCommitIntegration:
-    def test_auto_commit_keeps_revisions_small(self, mock_type, mock_bs):
-        """Auto-commit shrinks pending so tail revisions are small edits."""
-        typer = ProgressiveTyper()
-        typer.apply_partial("I would like to visit Japan and see how")
-        typer.apply_partial("I would like to visit Japan and see how a small")
-        typer.apply_partial("I would like to visit Japan and see how a small town")
-        assert typer.committed != ""
-        backspaces, typed = typer.apply_partial(
-            "I would like to visit Japan and see how a small village"
-        )
-        # "town" -> "village" is a small edit
-        assert backspaces <= 20
-
-    def test_whisper_word_revision_does_not_cause_stuck_state(self, mock_type, mock_bs):
-        """Whisper revises a committed word - tolerant stripping prevents deadlock."""
-        typer = ProgressiveTyper()
-        typer.apply_partial("I would like to visit Japan")
-        typer.apply_partial("I would like to visit Japan and see")
-        typer.apply_partial("I would like to visit Japan and see how")
-        typer.apply_partial("I would like to visit Japan and see how a small")
-        typer.apply_partial("I would like to visit Japan and see how a small town is like")
-        typer.apply_partial(
-            "I would like to visit Japan and see how a small town is like especially"
-        )
-        committed_snapshot = typer.committed
-        assert "I would like to visit Japan " in committed_snapshot
-        # Whisper revises committed words (e.g., "see how" -> "see to", "small" -> "how")
-        backspaces, typed = typer.apply_partial(
-            "I would like to visit Japan and see to Osaka and see how the average"
-        )
-        # Tolerant prefix stripping handles the revision - text doesn't get stuck
-        assert typer.committed.startswith(committed_snapshot)
-        assert typer.displayed_text.startswith(committed_snapshot)
-
-
 @patch("dictate.live.typer._send_backspaces")
 @patch("dictate.live.typer._type_text")
 class TestEmptyPartials:
@@ -647,45 +373,3 @@ class TestEmptyPartials:
         assert typed == ""
         mock_bs.assert_not_called()
         mock_type.assert_not_called()
-
-
-@patch("dictate.live.typer._send_backspaces")
-@patch("dictate.live.typer._type_text")
-class TestAutoCommitFormattingWhitespace:
-    def test_no_auto_commit_when_newline_in_pending(self, mock_type, mock_bs):
-        """Auto-commit skips when a newline command would be lost."""
-        typer = ProgressiveTyper()
-        typer.apply_partial("hello new line world")
-        typer.apply_partial("hello new line world this")
-        typer.apply_partial("hello new line world this is")
-        assert typer.committed == ""
-        assert "\n" in typer.displayed_text
-
-    def test_no_auto_commit_when_tab_in_pending(self, mock_type, mock_bs):
-        typer = ProgressiveTyper()
-        typer.apply_partial("hello tab key world")
-        typer.apply_partial("hello tab key world this")
-        typer.apply_partial("hello tab key world this is")
-        assert typer.committed == ""
-        assert "\t" in typer.displayed_text
-
-
-@patch("dictate.live.typer._send_backspaces")
-@patch("dictate.live.typer._type_text")
-class TestStripPunctuationExpanded:
-    def test_semicolon_in_committed_is_ignored(self, mock_type, mock_bs):
-        """Semicolons in committed text do not break prefix matching."""
-        typer = ProgressiveTyper()
-        typer._committed = "Hello; world "
-        typer._pending = ""
-        backspaces, typed = typer.apply_partial("hello world this is new")
-        assert typed == "This is new"
-        assert typer.displayed_text == "Hello; world This is new"
-
-    def test_colon_in_committed_is_ignored(self, mock_type, mock_bs):
-        typer = ProgressiveTyper()
-        typer._committed = "Hello: world "
-        typer._pending = ""
-        backspaces, typed = typer.apply_partial("hello world this is new")
-        assert typed == "This is new"
-        assert typer.displayed_text == "Hello: world This is new"

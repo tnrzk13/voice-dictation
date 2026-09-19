@@ -23,7 +23,7 @@ WHISPER_REPETITION_PENALTY = 1.2
 
 # Transcription Timing
 TRANSCRIBE_INTERVAL = 2  # seconds between transcription cycles (floor when audio is sparse)
-TRANSCRIBE_MIN_AUDIO_SECONDS = 1.0  # new audio that triggers an early transcription cycle
+TRANSCRIBE_MIN_AUDIO_SECONDS = 0.5  # new audio that triggers an early transcription cycle
 KEEP_TAIL_SECONDS = 3  # audio retained for context when finalizing a continuous segment
 
 # Vocabulary hints - bias Whisper toward domain-specific terms it often mishears
@@ -50,12 +50,6 @@ MESSAGE_RECV_BUFFER_BYTES = 4096  # bytes read per socket recv for JSON messages
 
 # Buffering
 MAX_BUFFER_SECONDS = 60  # hard cap on audio buffer growth when model is slow
-
-# Stability - auto-commit words consistent across consecutive partials
-STABILITY_THRESHOLD = 2       # consecutive agreeing partials before auto-commit
-KEEP_TAIL_WORDS = 2           # always keep last N words uncommitted for corrections
-MAX_PREFIX_MISMATCHES = 3     # word substitutions tolerated during committed prefix stripping (floor)
-MAX_PREFIX_MISMATCH_FRACTION = 0.3  # also tolerate up to 30% mismatches for long committed text
 
 # UI/UX
 XDOTOOL_KEYSTROKE_DELAY = 12  # milliseconds between keystrokes

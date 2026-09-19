@@ -1,33 +1,34 @@
 """Progressive typer - diff-based text correction for live dictation.
 
-Tracks committed (finalized) and pending (partial) text. On each partial
-result, diffs against what's already typed and sends minimal backspaces
-followed by new characters. On final result, locks text in so it won't
-be revised.
+Each partial from the daemon carries the text the daemon has finalized plus
+the still-revisable tail. The typer diffs the cumulative partial against what
+is already on screen and sends the minimal backspaces and new characters.
+
+The commit boundary comes from the daemon, not a client-side stability guess:
+the daemon only finalizes words with enough following speech that Whisper
+stops revising them, so committed text is genuinely immutable. Deriving it
+client-side raced ahead of that and let a later revision retype visible text.
 """
 
-import re
 import time
 from typing import Tuple
 
-from dictate.config import (
-    BACKSPACE_SETTLE_DELAY,
-    KEEP_TAIL_WORDS,
-    MAX_PREFIX_MISMATCH_FRACTION,
-    MAX_PREFIX_MISMATCHES,
-    STABILITY_THRESHOLD,
-)
+from dictate.config import BACKSPACE_SETTLE_DELAY
 from dictate.live.formatting import apply_formatting_commands
 from dictate.xdotool import type_text as _type_text, send_backspaces as _send_backspaces
 
 
 class ProgressiveTyper:
-    """Applies partial and final transcription results with minimal retyping."""
+    """Applies partial and final transcription results with minimal retyping.
+
+    One instance handles one dictation session; a new client creates a new
+    typer, so the daemon's per-connection finalized prefix maps directly onto
+    ``_committed``.
+    """
 
     def __init__(self) -> None:
-        self._committed = ""  # Finalized text - won't change
-        self._pending = ""  # Currently displayed partial - may be revised
-        self._stable_count: int = 0  # Consecutive partials with matching prefix
+        self._committed = ""  # Daemon-finalized text - won't change
+        self._pending = ""  # Revisable tail - may change
         self.last_typed_at: float = 0.0
         self.is_typing: bool = False
 
@@ -43,20 +44,19 @@ class ProgressiveTyper:
     def displayed_text(self) -> str:
         return self._committed + self._pending
 
-    def apply_partial(self, text: str) -> Tuple[int, str]:
-        """Update display with a partial result that may change later.
+    def apply_partial(self, text: str, finalized: str = "") -> Tuple[int, str]:
+        """Update the display with a cumulative partial that may still change.
 
         Returns:
             Tuple of (backspaces_needed, text_to_type) for the display update.
         """
         if not text.strip():
             return 0, ""
-        formatted = apply_formatting_commands(text)
-        new_pending = self._strip_committed_prefix(formatted)
-        new_pending = _capitalize_first(new_pending)
-        new_pending = self._auto_commit_stable_words(new_pending)
-        backspaces, to_type = self._compute_edit(self._pending, new_pending)
-        self._pending = new_pending
+        target = _capitalize_first(apply_formatting_commands(text))
+        committed = _finalized_prefix(target, finalized)
+        backspaces, to_type = self._compute_edit(self.displayed_text, target)
+        self._committed = committed
+        self._pending = target[len(committed):]
         self._execute_edit(backspaces, to_type)
         return backspaces, to_type
 
@@ -68,72 +68,12 @@ class ProgressiveTyper:
         """
         if not text.strip():
             return 0, ""
-        formatted = apply_formatting_commands(text)
-        new_pending = self._strip_committed_prefix(formatted)
-        capitalized = _capitalize_first(new_pending)
-        spaced = capitalized + " "
-        backspaces, to_type = self._compute_edit(self._pending, spaced)
-        self._committed += spaced
+        target = _capitalize_first(apply_formatting_commands(text)) + " "
+        backspaces, to_type = self._compute_edit(self.displayed_text, target)
+        self._committed = target
         self._pending = ""
-        self._stable_count = 0
         self._execute_edit(backspaces, to_type)
         return backspaces, to_type
-
-    def _auto_commit_stable_words(self, new_pending: str) -> str:
-        """Promote words stable across consecutive partials to committed text.
-
-        Words that match at the start of both old and new pending for
-        STABILITY_THRESHOLD consecutive calls get moved to _committed,
-        making them immune to future Whisper revisions.
-
-        Skips auto-commit when either pending text contains formatting
-        whitespace (newlines or tabs) because split()/join would lose it.
-        """
-        if _contains_formatting_whitespace(self._pending) or _contains_formatting_whitespace(new_pending):
-            self._stable_count = 0
-            return new_pending
-        old_words = self._pending.split()
-        new_words = new_pending.split()
-        match = _count_common_prefix_words(old_words, new_words)
-        if match > 0:
-            self._stable_count += 1
-        else:
-            self._stable_count = 0
-            return new_pending
-        if self._stable_count >= STABILITY_THRESHOLD and match > KEEP_TAIL_WORDS:
-            commit_count = match - KEEP_TAIL_WORDS
-            commit_text = " ".join(old_words[:commit_count]) + " "
-            self._committed += commit_text
-            self._pending = _capitalize_first(" ".join(old_words[commit_count:]))
-            new_pending = _capitalize_first(" ".join(new_words[commit_count:]))
-            self._stable_count = 0
-        return new_pending
-
-    def _strip_committed_prefix(self, text: str) -> str:
-        """Remove the committed portion from the beginning of new text.
-
-        Uses word-based comparison so punctuation differences don't
-        break matching against partial results. Tolerates up to
-        MAX_PREFIX_MISMATCHES word substitutions (Whisper revisions).
-        """
-        committed_words = _strip_punctuation(self._committed).split()
-        if not committed_words:
-            return text
-        text_words = text.split()
-        text_words_stripped = [_strip_punctuation(w) for w in text_words]
-        if len(text_words_stripped) < len(committed_words):
-            return text
-        max_allowed = max(MAX_PREFIX_MISMATCHES, int(len(committed_words) * MAX_PREFIX_MISMATCH_FRACTION))
-        mismatches = 0
-        for i, committed_word in enumerate(committed_words):
-            if text_words_stripped[i].lower() != committed_word.lower():
-                mismatches += 1
-                if mismatches > max_allowed:
-                    return text
-        if mismatches >= len(committed_words):
-            return text  # all words differ - new text, not a revision
-        remaining_words = text_words[len(committed_words):]
-        return " ".join(remaining_words) if remaining_words else ""
 
     def _compute_edit(self, old: str, new: str) -> Tuple[int, str]:
         """Compute minimal backspaces and new text to transform old into new."""
@@ -166,13 +106,17 @@ def _capitalize_first(text: str) -> str:
     return text[0].upper() + text[1:]
 
 
-def _count_common_prefix_words(old_words: list, new_words: list) -> int:
-    """Count leading words that match, case-insensitive."""
-    limit = min(len(old_words), len(new_words))
-    for i in range(limit):
-        if old_words[i].lower() != new_words[i].lower():
-            return i
-    return limit
+def _finalized_prefix(target: str, finalized: str) -> str:
+    """Return the portion of formatted target covered by the daemon's finalized text.
+
+    The split is the common prefix with the formatted finalized text, which
+    tolerates the boundary re-formatting that happens when a formatting command
+    in the finalized text only resolves once the next word is present.
+    """
+    if not finalized:
+        return ""
+    formatted = _capitalize_first(apply_formatting_commands(finalized))
+    return target[: _find_common_prefix_length(target, formatted)]
 
 
 def _find_common_prefix_length(a: str, b: str) -> int:
@@ -182,16 +126,3 @@ def _find_common_prefix_length(a: str, b: str) -> int:
         if a[i] != b[i]:
             return i
     return limit
-
-
-_PUNCTUATION_RE = re.compile(r"[,\.\?!;:\"]")
-
-
-def _strip_punctuation(text: str) -> str:
-    """Remove punctuation marks for word-based prefix comparison."""
-    return _PUNCTUATION_RE.sub("", text)
-
-
-def _contains_formatting_whitespace(text: str) -> bool:
-    """Return True if text contains whitespace produced by formatting commands."""
-    return "\n" in text or "\t" in text

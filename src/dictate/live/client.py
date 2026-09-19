@@ -134,7 +134,7 @@ class LiveDaemonClient:
         elif self._stop_event is not None and self._stop_event.is_set():
             return
         elif msg_type == "partial" and self._streaming:
-            self._typer.apply_partial(text)
+            self._typer.apply_partial(text, msg.get("finalized", ""))
         elif msg_type == "final":
             self._typer.apply_final(text)
 

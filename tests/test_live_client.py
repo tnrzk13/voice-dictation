@@ -17,7 +17,14 @@ class TestHandleMessage:
     def test_routes_partial_to_typer(self):
         client, typer = self._make_client()
         client._handle_message(json.dumps({"type": "partial", "text": "hel"}))
-        typer.apply_partial.assert_called_once_with("hel")
+        typer.apply_partial.assert_called_once_with("hel", "")
+
+    def test_routes_finalized_prefix_to_typer(self):
+        client, typer = self._make_client()
+        client._handle_message(
+            json.dumps({"type": "partial", "text": "hello world", "finalized": "hello"})
+        )
+        typer.apply_partial.assert_called_once_with("hello world", "hello")
 
     def test_routes_final_to_typer(self):
         client, typer = self._make_client()

@@ -45,6 +45,20 @@ class TestSendMessage:
         sent = conn.sendall.call_args[0][0]
         assert sent.endswith(b"\n")
 
+    def test_partial_includes_finalized_prefix(self):
+        conn = MagicMock()
+        _send_message(conn, "partial", "hello world", finalized="hello")
+        sent = conn.sendall.call_args[0][0]
+        msg = json.loads(sent.decode("utf-8").strip())
+        assert msg == {"type": "partial", "text": "hello world", "finalized": "hello"}
+
+    def test_final_omits_finalized_field(self):
+        conn = MagicMock()
+        _send_message(conn, "final", "hello world")
+        sent = conn.sendall.call_args[0][0]
+        msg = json.loads(sent.decode("utf-8").strip())
+        assert "finalized" not in msg
+
 
 def _make_segment(text=" Hello world.", start=0.0, end=1.0):
     """Create a mock Whisper segment with .text, .start, .end attributes."""
@@ -179,6 +193,16 @@ class TestFinalizeCompletedSegments:
         segments = [_timed_segment(["hello"], starts=[0.0], end=5.0)]
         finalized, bytes_trimmed = _finalize_completed_segments(segments, "")
         assert finalized == ""
+        assert bytes_trimmed == 0
+
+    def test_defers_when_last_segment_starts_at_zero(self):
+        """No trim means the finalized text would be re-decoded - defer instead."""
+        segments = [
+            {"text": "hello", "start": 0.0, "end": 1.0},
+            {"text": "world", "start": 0.0, "end": 2.0},
+        ]
+        finalized, bytes_trimmed = _finalize_completed_segments(segments, "prior")
+        assert finalized == "prior"
         assert bytes_trimmed == 0
 
     def test_bytes_trimmed_aligned_to_int16(self):

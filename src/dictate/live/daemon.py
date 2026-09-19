@@ -191,7 +191,7 @@ def _transcribe_loop(connection: socket.socket, model, audio: _AudioBuffer) -> N
         display_text = _concat_transcriptions(finalized_text, full_text)
         if display_text != last_partial_text:
             last_partial_text = display_text
-            _send_message(connection, "partial", display_text)
+            _send_message(connection, "partial", display_text, finalized=finalized_text)
 
         finalized_text, bytes_trimmed = _finalize_completed_segments(
             segments, finalized_text
@@ -227,12 +227,15 @@ def _finalize_completed_segments(segments, finalized_text):
     if len(segments) <= 1:
         return _finalize_single_segment(segments, finalized_text)
 
-    for seg in segments[:-1]:
-        finalized_text = _concat_transcriptions(finalized_text, seg["text"])
-
     last_start = segments[-1]["start"]
     trim_bytes = int(last_start * BYTES_PER_SECOND)
     trim_bytes -= trim_bytes % BYTES_PER_SAMPLE
+    if trim_bytes <= 0:
+        return finalized_text, 0
+
+    for seg in segments[:-1]:
+        finalized_text = _concat_transcriptions(finalized_text, seg["text"])
+
     return finalized_text, trim_bytes
 
 
@@ -367,9 +370,17 @@ def _transcribe(model, audio_bytes: bytes, initial_prompt: str = "") -> list:
     ]
 
 
-def _send_message(connection: socket.socket, msg_type: str, text: str) -> None:
-    """Send a newline-delimited JSON message to the client."""
+def _send_message(
+    connection: socket.socket, msg_type: str, text: str, finalized: str = None
+) -> None:
+    """Send a newline-delimited JSON message to the client.
+
+    ``finalized`` is set on partials so the client knows which prefix the
+    daemon has committed and must not revise.
+    """
     msg = {"type": msg_type, "text": text}
+    if finalized is not None:
+        msg["finalized"] = finalized
     connection.sendall(json.dumps(msg).encode("utf-8") + b"\n")
 
 
