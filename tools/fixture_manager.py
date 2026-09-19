@@ -3,10 +3,10 @@
 
 Provides a tkinter window to:
 - View the script and directions for each edge case
-- Record audio from the microphone
-- Play back recordings
-- Capture golden chunk sequences from recordings
-- Delete recordings
+- Record multiple takes per edge case
+- See which takes exist, play them, and delete them
+- Capture golden chunk sequences from a take
+- Capture with the same model the daemon runs
 
 Run with:
     python tools/fixture_manager.py
@@ -16,9 +16,9 @@ Run with:
 
 import json
 import queue
+import shutil
 import sys
 import threading
-import time
 import tkinter as tk
 import wave
 from pathlib import Path
@@ -31,10 +31,28 @@ import sounddevice as sd
 # Allow running this script directly: python tools/fixture_manager.py
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from dictate.config import BYTES_PER_SAMPLE, BYTES_PER_SECOND, SAMPLE_RATE, SOCKET_PATH
-from dictate.daemon_support import is_daemon_running
+from dictate.config import (
+    BYTES_PER_SAMPLE,
+    BYTES_PER_SECOND,
+    SAMPLE_RATE,
+    SOCKET_PATH,
+    WHISPER_COMPUTE_TYPE,
+    WHISPER_DEVICE,
+    WHISPER_MODEL_SIZE,
+)
+from dictate.daemon_support import is_daemon_running, read_daemon_config
 from tools.capture_chunks import capture_chunks, load_audio
 from tools.fixture_definitions import FIXTURES
+from tools.fixture_store import (
+    LOCAL_FIXTURES_DIR,
+    list_take_ids,
+    migrate_legacy_take,
+    next_take_id,
+    take_audio_path,
+    take_chunks_path,
+    take_dir,
+    take_reference_path,
+)
 
 
 class FixtureManager:
@@ -43,13 +61,17 @@ class FixtureManager:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Voice Dictation Fixture Manager")
-        self.root.geometry("900x650")
-        self.root.minsize(700, 500)
+        self.root.geometry("900x680")
+        self.root.minsize(720, 540)
 
-        self.output_dir = Path("tests/audio_fixtures_local")
+        self.output_dir = LOCAL_FIXTURES_DIR
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        for name in FIXTURES:
+            migrate_legacy_take(name, self.output_dir)
 
         self.current_fixture: str = ""
+        self.current_take: str = ""
+        self.pending_take_id: str = ""
         self.is_recording = False
         self.record_frames: list = []
         self.record_stream: sd.InputStream = None
@@ -75,7 +97,7 @@ class FixtureManager:
 
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(0, weight=1)
+        main_frame.columnconfigure(0, weight=2)
         main_frame.columnconfigure(1, weight=3)
         main_frame.rowconfigure(0, weight=1)
 
@@ -85,41 +107,37 @@ class FixtureManager:
         left_frame.rowconfigure(0, weight=1)
         left_frame.columnconfigure(0, weight=1)
 
-        self.fixture_list = tk.Listbox(left_frame, selectmode=tk.SINGLE)
+        self.fixture_list = tk.Listbox(left_frame, selectmode=tk.SINGLE, exportselection=False)
         self.fixture_list.grid(row=0, column=0, sticky="nsew")
         self.fixture_list.bind("<<ListboxSelect>>", self._on_fixture_select)
 
-        scrollbar = ttk.Scrollbar(left_frame, orient=tk.VERTICAL, command=self.fixture_list.yview)
-        scrollbar.grid(row=0, column=1, sticky="ns")
-        self.fixture_list.config(yscrollcommand=scrollbar.set)
+        fixture_scrollbar = ttk.Scrollbar(
+            left_frame, orient=tk.VERTICAL, command=self.fixture_list.yview
+        )
+        fixture_scrollbar.grid(row=0, column=1, sticky="ns")
+        self.fixture_list.config(yscrollcommand=fixture_scrollbar.set)
 
-        # Right panel: details and controls
+        # Right panel: details, takes, controls
         right_frame = ttk.Frame(main_frame, padding="5")
         right_frame.grid(row=0, column=1, sticky="nsew")
         right_frame.columnconfigure(0, weight=1)
-        right_frame.rowconfigure(1, weight=1)
+        right_frame.rowconfigure(3, weight=1)
 
         self.warning_label = ttk.Label(
-            right_frame,
-            text="",
-            foreground="red",
-            wraplength=500,
-            justify=tk.LEFT,
+            right_frame, text="", foreground="red", wraplength=500, justify=tk.LEFT
         )
         self.warning_label.grid(row=0, column=0, sticky="ew", pady=(0, 5))
 
         self.fixture_name_label = ttk.Label(
-            right_frame, text="Select a fixture", font=("Helvetica", 14, "bold")
+            right_frame, text="Select an edge case", font=("Helvetica", 14, "bold")
         )
         self.fixture_name_label.grid(row=1, column=0, sticky="w", pady=(0, 10))
 
-        # Details area
         details_frame = ttk.LabelFrame(right_frame, text="Script & Directions", padding="10")
-        details_frame.grid(row=2, column=0, sticky="nsew", pady=(0, 10))
+        details_frame.grid(row=2, column=0, sticky="ew", pady=(0, 10))
         details_frame.columnconfigure(0, weight=1)
-        details_frame.rowconfigure(0, weight=1)
 
-        self.details_text = tk.Text(details_frame, wrap=tk.WORD, height=12, state=tk.DISABLED)
+        self.details_text = tk.Text(details_frame, wrap=tk.WORD, height=7, state=tk.DISABLED)
         self.details_text.grid(row=0, column=0, sticky="nsew")
 
         details_scrollbar = ttk.Scrollbar(
@@ -128,9 +146,25 @@ class FixtureManager:
         details_scrollbar.grid(row=0, column=1, sticky="ns")
         self.details_text.config(yscrollcommand=details_scrollbar.set)
 
+        # Recordings (takes) panel
+        takes_frame = ttk.LabelFrame(right_frame, text="Recordings", padding="10")
+        takes_frame.grid(row=3, column=0, sticky="nsew", pady=(0, 10))
+        takes_frame.rowconfigure(0, weight=1)
+        takes_frame.columnconfigure(0, weight=1)
+
+        self.takes_list = tk.Listbox(takes_frame, selectmode=tk.SINGLE, exportselection=False)
+        self.takes_list.grid(row=0, column=0, sticky="nsew")
+        self.takes_list.bind("<<ListboxSelect>>", self._on_take_select)
+
+        takes_scrollbar = ttk.Scrollbar(
+            takes_frame, orient=tk.VERTICAL, command=self.takes_list.yview
+        )
+        takes_scrollbar.grid(row=0, column=1, sticky="ns")
+        self.takes_list.config(yscrollcommand=takes_scrollbar.set)
+
         # Status and level
         status_frame = ttk.Frame(right_frame)
-        status_frame.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        status_frame.grid(row=4, column=0, sticky="ew", pady=(0, 10))
         status_frame.columnconfigure(1, weight=1)
 
         ttk.Label(status_frame, text="Status:").grid(row=0, column=0, sticky="w")
@@ -145,10 +179,10 @@ class FixtureManager:
 
         # Buttons
         button_frame = ttk.Frame(right_frame)
-        button_frame.grid(row=4, column=0, sticky="ew")
+        button_frame.grid(row=5, column=0, sticky="ew")
 
         self.record_button = ttk.Button(
-            button_frame, text="Record", command=self._toggle_record
+            button_frame, text="New Recording", command=self._toggle_record
         )
         self.record_button.grid(row=0, column=0, padx=5)
 
@@ -167,21 +201,38 @@ class FixtureManager:
         )
         self.delete_button.grid(row=0, column=3, padx=5)
 
-        self.recording_info_label = ttk.Label(right_frame, text="")
-        self.recording_info_label.grid(row=5, column=0, sticky="w", pady=(10, 0))
-
-    def _populate_fixture_list(self) -> None:
-        """Fill the fixture listbox with available edge cases."""
+    def _populate_fixture_list(self, select: str = "") -> None:
+        """Fill the fixture listbox, showing each edge case's take count."""
+        self.fixture_list.delete(0, tk.END)
+        self._fixture_names = []
         for name in FIXTURES:
-            self.fixture_list.insert(tk.END, name)
+            count = len(list_take_ids(name, self.output_dir))
+            label = f"{name} ({count})" if count else name
+            self.fixture_list.insert(tk.END, label)
+            self._fixture_names.append(name)
+
+        if select:
+            self._select_fixture(name=select)
+
+    def _select_fixture(self, name: str) -> None:
+        """Select a fixture by name, if present."""
+        if name not in self._fixture_names:
+            return
+        index = self._fixture_names.index(name)
+        self.fixture_list.selection_clear(0, tk.END)
+        self.fixture_list.selection_set(index)
+        self.fixture_list.see(index)
+        self._on_fixture_select()
 
     def _on_fixture_select(self, _event=None) -> None:
-        """Update the details panel when a fixture is selected."""
+        """Update details and takes when a fixture is selected."""
         selection = self.fixture_list.curselection()
         if not selection:
             return
-        self.current_fixture = self.fixture_list.get(selection[0])
+        self.current_fixture = self._fixture_names[selection[0]]
+        self.current_take = ""
         self._update_details()
+        self._refresh_takes_list()
         self._update_buttons()
 
     def _update_details(self) -> None:
@@ -198,20 +249,44 @@ class FixtureManager:
         self.details_text.insert(tk.END, f"Focus:\n{info['focus']}")
         self.details_text.config(state=tk.DISABLED)
 
-        self._update_recording_info()
+    def _refresh_takes_list(self, select: str = "") -> None:
+        """Reload the takes listbox for the current fixture."""
+        self.takes_list.delete(0, tk.END)
+        self._take_ids = (
+            list_take_ids(self.current_fixture, self.output_dir) if self.current_fixture else []
+        )
+        for take_id in self._take_ids:
+            self.takes_list.insert(tk.END, self._take_label(take_id))
 
-    def _update_recording_info(self) -> None:
-        """Show the duration of the existing recording, if any."""
-        audio_path = self._audio_path()
-        if audio_path.exists():
-            duration = self._audio_duration(audio_path)
-            self.recording_info_label.config(text=f"Recording: {duration:.1f}s")
-        else:
-            self.recording_info_label.config(text="No recording")
+        if select and select in self._take_ids:
+            self._select_take(select)
+        elif self._take_ids and self.current_take not in self._take_ids:
+            self.takes_list.selection_set(0)
+            self._on_take_select()
 
-    def _audio_path(self) -> Path:
-        """Return the WAV path for the selected fixture."""
-        return self.output_dir / self.current_fixture / "audio.wav"
+    def _take_label(self, take_id: str) -> str:
+        """Format a take row with its duration and capture state."""
+        audio_path = take_audio_path(self.current_fixture, take_id, self.output_dir)
+        duration = self._audio_duration(audio_path)
+        captured = take_chunks_path(self.current_fixture, take_id, self.output_dir).exists()
+        suffix = "  [captured]" if captured else ""
+        return f"{take_id}  {duration:.1f}s{suffix}"
+
+    def _select_take(self, take_id: str) -> None:
+        """Select a take by id, if present."""
+        if take_id not in self._take_ids:
+            return
+        index = self._take_ids.index(take_id)
+        self.takes_list.selection_clear(0, tk.END)
+        self.takes_list.selection_set(index)
+        self.takes_list.see(index)
+        self._on_take_select()
+
+    def _on_take_select(self, _event=None) -> None:
+        """Track the selected take."""
+        selection = self.takes_list.curselection()
+        self.current_take = self._take_ids[selection[0]] if selection else ""
+        self._update_buttons()
 
     def _audio_duration(self, path: Path) -> float:
         """Return the duration of a WAV file in seconds."""
@@ -220,24 +295,30 @@ class FixtureManager:
 
     def _update_buttons(self) -> None:
         """Enable/disable buttons based on current state."""
-        has_audio = self._audio_path().exists()
-        base_state = tk.NORMAL if has_audio else tk.DISABLED
+        has_fixture = bool(self.current_fixture)
+        has_take = bool(self.current_take)
+        busy = self.is_playing or self.is_capturing
 
         if self.is_recording:
             self.record_button.config(text="Stop")
             self.play_button.config(state=tk.DISABLED)
             self.capture_button.config(state=tk.DISABLED)
             self.delete_button.config(state=tk.DISABLED)
-        else:
-            self.record_button.config(text="Record")
-            self.play_button.config(state=base_state if not self.is_playing else tk.DISABLED)
-            self.capture_button.config(state=base_state if not self.is_capturing else tk.DISABLED)
-            self.delete_button.config(state=base_state)
+            return
+
+        self.record_button.config(
+            text="New Recording",
+            state=tk.NORMAL if has_fixture and not busy else tk.DISABLED,
+        )
+        take_state = tk.NORMAL if has_take and not busy else tk.DISABLED
+        self.play_button.config(state=take_state)
+        self.capture_button.config(state=take_state)
+        self.delete_button.config(state=take_state)
 
     def _toggle_record(self) -> None:
-        """Start or stop recording."""
+        """Start or stop recording a new take."""
         if not self.current_fixture:
-            messagebox.showinfo("No Fixture", "Select a fixture from the list first.")
+            messagebox.showinfo("No Edge Case", "Select an edge case from the list first.")
             return
         if self.is_recording:
             self._stop_recording()
@@ -245,11 +326,12 @@ class FixtureManager:
             self._start_recording()
 
     def _start_recording(self) -> None:
-        """Begin recording audio from the microphone."""
+        """Begin recording a new take from the microphone."""
+        self.pending_take_id = next_take_id(self.current_fixture, self.output_dir)
         try:
             self.is_recording = True
             self.record_frames = []
-            self._update_status("Recording...")
+            self._update_status(f"Recording {self.pending_take_id}...")
             self._update_buttons()
 
             self.record_stream = sd.InputStream(
@@ -266,11 +348,11 @@ class FixtureManager:
             messagebox.showerror(
                 "Recording Error",
                 f"Could not start recording:\n{exc}\n\n"
-                "Is another application (like the dictation daemon) using the microphone?",
+                "Is another application (like the dictation client) using the microphone?",
             )
 
     def _stop_recording(self) -> None:
-        """Stop recording and save the captured audio."""
+        """Stop recording and save the take."""
         if not self.is_recording:
             return
         self.is_recording = False
@@ -278,17 +360,21 @@ class FixtureManager:
         self.record_stream.close()
         self.record_stream = None
 
-        if self.record_frames:
-            audio = np.concatenate(self.record_frames, axis=0).tobytes()
-            audio_path = self._audio_path()
-            audio_path.parent.mkdir(parents=True, exist_ok=True)
-            self._save_wav(audio, audio_path)
-            self._update_status(f"Saved {len(audio) / BYTES_PER_SECOND:.1f}s")
-        else:
+        if not self.record_frames:
             self._update_status("No audio recorded")
+            self._update_buttons()
+            self.level_meter.config(value=0)
+            return
 
-        self._update_buttons()
-        self._update_recording_info()
+        audio = np.concatenate(self.record_frames, axis=0).tobytes()
+        audio_path = take_audio_path(self.current_fixture, self.pending_take_id, self.output_dir)
+        audio_path.parent.mkdir(parents=True, exist_ok=True)
+        self._save_wav(audio, audio_path)
+        self._update_status(f"Saved {self.pending_take_id} ({len(audio) / BYTES_PER_SECOND:.1f}s)")
+
+        recorded_take = self.pending_take_id
+        self._populate_fixture_list(select=self.current_fixture)
+        self._refresh_takes_list(select=recorded_take)
         self.level_meter.config(value=0)
 
     def _audio_callback(self, indata: np.ndarray, _frames: int, _time_info, _status) -> None:
@@ -308,8 +394,8 @@ class FixtureManager:
             wav.writeframes(audio_bytes)
 
     def _play(self) -> None:
-        """Play the selected fixture's recording."""
-        if not self._audio_path().exists():
+        """Play the selected take."""
+        if not self.current_take:
             return
         self._update_status("Playing...")
         self.is_playing = True
@@ -320,7 +406,8 @@ class FixtureManager:
     def _play_thread(self) -> None:
         """Background thread: playback audio and update UI when done."""
         try:
-            audio = pydub.AudioSegment.from_wav(str(self._audio_path()))
+            audio_path = take_audio_path(self.current_fixture, self.current_take, self.output_dir)
+            audio = pydub.AudioSegment.from_wav(str(audio_path))
             samples = np.array(audio.get_array_of_samples()).astype(np.float32) / 32768.0
             sd.play(samples, SAMPLE_RATE)
             sd.wait()
@@ -332,24 +419,40 @@ class FixtureManager:
             self._schedule_ui_update(self._update_buttons)
 
     def _capture(self) -> None:
-        """Run the selected recording through Whisper and save chunk sequences."""
-        if not self._audio_path().exists():
+        """Run the selected take through Whisper and save its chunks."""
+        if not self.current_take:
             return
         self.is_capturing = True
-        self._update_status("Capturing chunks...")
+        model, device, compute_type = self._capture_model_args()
+        self._update_status(f"Capturing with {model} ({device})...")
         self._update_buttons()
-        thread = threading.Thread(target=self._capture_thread, daemon=True)
+        thread = threading.Thread(
+            target=self._capture_thread,
+            args=(model, device, compute_type),
+            daemon=True,
+        )
         thread.start()
 
-    def _capture_thread(self) -> None:
-        """Background thread: transcribe audio and write golden chunks."""
-        try:
-            audio_bytes = load_audio(str(self._audio_path()))
-            chunks = capture_chunks(audio_bytes, "tiny", "cpu", "int8")
+    def _capture_model_args(self) -> tuple:
+        """Use the daemon's configured model so captures match production."""
+        config = read_daemon_config(SOCKET_PATH)
+        if config:
+            return (
+                config.get("model", WHISPER_MODEL_SIZE),
+                config.get("device", WHISPER_DEVICE),
+                config.get("compute_type", WHISPER_COMPUTE_TYPE),
+            )
+        return WHISPER_MODEL_SIZE, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE
 
-            fixture_dir = self.output_dir / self.current_fixture
-            fixture_dir.mkdir(parents=True, exist_ok=True)
-            (fixture_dir / "chunks.jsonl").write_text(
+    def _capture_thread(self, model: str, device: str, compute_type: str) -> None:
+        """Background thread: transcribe the take and write golden chunks."""
+        try:
+            audio_path = take_audio_path(self.current_fixture, self.current_take, self.output_dir)
+            chunks = capture_chunks(load_audio(str(audio_path)), model, device, compute_type)
+
+            take_path = take_dir(self.current_fixture, self.current_take, self.output_dir)
+            take_path.mkdir(parents=True, exist_ok=True)
+            take_chunks_path(self.current_fixture, self.current_take, self.output_dir).write_text(
                 "".join(json.dumps(chunk) + "\n" for chunk in chunks),
                 encoding="utf-8",
             )
@@ -359,9 +462,13 @@ class FixtureManager:
                 (chunk for chunk in reversed(chunks) if chunk["type"] == "partial"), None
             )
             reference = (final or partial or {}).get("text", "").strip()
-            (fixture_dir / "reference.txt").write_text(reference, encoding="utf-8")
+            take_reference_path(
+                self.current_fixture, self.current_take, self.output_dir
+            ).write_text(reference, encoding="utf-8")
 
-            self._schedule_ui_update(lambda: self._update_status(f"Captured {len(chunks)} messages"))
+            self._schedule_ui_update(
+                lambda: self._update_status(f"Captured {len(chunks)} messages")
+            )
             self._schedule_ui_update(
                 lambda: messagebox.showinfo("Capture Complete", f"Reference: {reference}")
             )
@@ -369,25 +476,22 @@ class FixtureManager:
             self._schedule_ui_update(lambda: messagebox.showerror("Capture Error", str(exc)))
         finally:
             self.is_capturing = False
+            self._schedule_ui_update(self._refresh_takes_list)
             self._schedule_ui_update(self._update_buttons)
 
     def _delete(self) -> None:
-        """Delete the selected fixture's recording and captured chunks."""
-        if not self._audio_path().exists():
+        """Delete the selected take and its captured chunks."""
+        if not self.current_take:
             return
         if messagebox.askyesno(
-            "Delete Recording", f"Delete recording and chunks for {self.current_fixture}?"
+            "Delete Recording", f"Delete {self.current_fixture}/{self.current_take}?"
         ):
-            self._audio_path().unlink()
-            chunks_path = self._audio_path().parent / "chunks.jsonl"
-            ref_path = self._audio_path().parent / "reference.txt"
-            if chunks_path.exists():
-                chunks_path.unlink()
-            if ref_path.exists():
-                ref_path.unlink()
-            self._update_status("Deleted")
+            shutil.rmtree(take_dir(self.current_fixture, self.current_take, self.output_dir))
+            self._update_status(f"Deleted {self.current_take}")
+            self.current_take = ""
+            self._populate_fixture_list(select=self.current_fixture)
+            self._refresh_takes_list()
             self._update_buttons()
-            self._update_recording_info()
 
     def _start_ui_queue_polling(self) -> None:
         """Poll the UI update queue from the main thread every 50 ms."""
@@ -428,8 +532,8 @@ class FixtureManager:
         if is_daemon_running(SOCKET_PATH):
             self.warning_label.config(
                 text=(
-                    "Warning: the dictation daemon is running and may be using the microphone. "
-                    "Stop it with 'dictate-stop' before recording fixtures."
+                    "Warning: the dictation daemon is running. Stop it with 'dictate-stop' "
+                    "before recording so it does not compete for the microphone."
                 )
             )
         else:

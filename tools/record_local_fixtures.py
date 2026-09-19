@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from dictate.config import BYTES_PER_SAMPLE, BYTES_PER_SECOND, SAMPLE_RATE
 from tools.fixture_definitions import FIXTURES
+from tools.fixture_store import list_take_ids, next_take_id, take_audio_path
 
 
 def _record_until_enter() -> bytes:
@@ -87,11 +88,8 @@ def main() -> None:
         if args.fixture and name != args.fixture:
             continue
 
-        fixture_dir = output_dir / name
-        audio_path = fixture_dir / "audio.wav"
-
-        if args.skip_existing and audio_path.exists():
-            print(f"Skipping {name} (already exists)")
+        if args.skip_existing and list_take_ids(name, output_dir):
+            print(f"Skipping {name} (already recorded)")
             continue
 
         print(f"\n=== {name} ===")
@@ -105,12 +103,14 @@ def main() -> None:
             print(f"No audio recorded for {name}, skipping")
             continue
 
-        fixture_dir.mkdir(parents=True, exist_ok=True)
+        take_id = next_take_id(name, output_dir)
+        audio_path = take_audio_path(name, take_id, output_dir)
+        audio_path.parent.mkdir(parents=True, exist_ok=True)
         _save_wav(audio_bytes, audio_path)
         print(f"Saved {audio_path} ({len(audio_bytes) / BYTES_PER_SECOND:.1f}s)")
 
-    print(f"\nNext step: capture chunk sequences with:")
-    print(f"  python tools/capture_chunks.py {output_dir}/*.wav --output-dir {output_dir}")
+    print("\nNext step: capture chunks from the fixture manager GUI,")
+    print("or run capture_chunks.py on each take's audio.wav.")
 
 
 if __name__ == "__main__":

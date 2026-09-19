@@ -24,6 +24,13 @@ FIXTURES: Dict[str, Dict[str, str]] = {
         "script": "This is the first part. And this is the second part.",
         "directions": "Say the first sentence, then pause for about 2 seconds before continuing.",
         "focus": "Tests re-transcription across a pause without duplicating text.",
+        "verify_against_script": True,
+    },
+    "dictation_test_phrase": {
+        "script": "So this is to test out my dictation feature. I want to dictate a sentence long enough.",
+        "directions": "Say the first sentence, pause about 2-3 seconds, then say the second sentence.",
+        "focus": "Tests a long pause between sentences without dropping or duplicating boundary words.",
+        "verify_against_script": True,
     },
     "false_start": {
         "script": "I went to the store, I mean, the park.",

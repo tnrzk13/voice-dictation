@@ -10,6 +10,7 @@ To regenerate the fixtures after changing the model or adding new audio:
     python tools/capture_chunks.py tests/audio_fixtures/*.wav
 """
 
+import difflib
 import json
 from pathlib import Path
 from typing import List
@@ -18,11 +19,17 @@ from unittest.mock import patch
 import pytest
 
 from dictate.live.client import LiveDaemonClient
+from dictate.live.formatting import apply_formatting_commands
 from dictate.live.typer import ProgressiveTyper
+from tools.fixture_definitions import FIXTURES
+from tools.fixture_store import (
+    CHUNKS_FILENAME,
+    LOCAL_FIXTURES_DIR,
+    TAKES_DIRNAME,
+)
 
 
 FIXTURES_DIR = Path(__file__).parent / "audio_fixtures"
-LOCAL_FIXTURES_DIR = Path(__file__).parent / "audio_fixtures_local"
 
 
 @pytest.fixture
@@ -54,19 +61,32 @@ def _replay_chunks(typer: ProgressiveTyper, chunks: List[dict]) -> None:
         client._handle_message(json.dumps(chunk))
 
 
-def _discover_local_fixtures() -> List[tuple]:
-    """Return (name, dir) pairs for any local fixtures with captured chunks."""
-    fixtures = []
+def _discover_local_takes() -> List[tuple]:
+    """Return (name, dir) pairs for local takes that have captured chunks."""
+    takes = []
     if LOCAL_FIXTURES_DIR.exists():
         for fixture_dir in sorted(LOCAL_FIXTURES_DIR.iterdir()):
-            if (fixture_dir / "chunks.jsonl").exists():
-                fixtures.append((fixture_dir.name, fixture_dir))
-    return fixtures
+            takes_dir = fixture_dir / TAKES_DIRNAME
+            if not takes_dir.is_dir():
+                continue
+            for take_dir in sorted(takes_dir.iterdir()):
+                if (take_dir / CHUNKS_FILENAME).exists():
+                    takes.append((f"{fixture_dir.name}/{take_dir.name}", take_dir))
+    return takes
+
+
+REFERENCE_SIMILARITY_THRESHOLD = 0.99
+SCRIPT_SIMILARITY_THRESHOLD = 0.95
 
 
 def _normalize(text: str) -> str:
-    """Normalize text for tolerant comparison: lowercase and strip whitespace."""
-    return text.strip().lower()
+    """Normalize text for tolerant comparison: lowercase and collapse whitespace."""
+    return " ".join(text.strip().lower().split())
+
+
+def _similarity(a: str, b: str) -> float:
+    """Return a ratio in [0, 1] describing how closely two texts match."""
+    return difflib.SequenceMatcher(None, _normalize(a), _normalize(b)).ratio()
 
 
 def _has_duplicate_segments(text: str) -> bool:
@@ -114,34 +134,42 @@ class TestAudioRegression:
         assert "second part" in _normalize(typer.displayed_text)
 
 
-LOCAL_FIXTURES = _discover_local_fixtures()
+LOCAL_TAKES = _discover_local_takes()
 
 
 @patch("dictate.live.typer._send_backspaces")
 @patch("dictate.live.typer._type_text")
-@pytest.mark.skipif(not LOCAL_FIXTURES, reason="No local audio fixtures found")
+@pytest.mark.skipif(not LOCAL_TAKES, reason="No local audio takes found")
 class TestLocalAudioRegression:
-    @pytest.mark.parametrize("fixture_name, fixture_dir", LOCAL_FIXTURES)
-    def test_local_fixture_does_not_duplicate_or_crash(
-        self, mock_type, mock_bs, typer: ProgressiveTyper, fixture_name: str, fixture_dir: Path
+    @pytest.mark.parametrize(
+        "take_name, take_dir", LOCAL_TAKES, ids=[name for name, _ in LOCAL_TAKES]
+    )
+    def test_local_take_reproduces_reference(
+        self, mock_type, mock_bs, typer: ProgressiveTyper, take_name: str, take_dir: Path
     ) -> None:
-        """Replays a user-recorded fixture and verifies the typer behaves sanely."""
-        chunks = _load_chunks(fixture_dir)
+        """Replaying a take's chunks must type the same text the model produced."""
+        chunks = _load_chunks(take_dir)
         _replay_chunks(typer, chunks)
 
-        assert typer.displayed_text.strip(), f"{fixture_name}: produced no text"
-        assert not _has_duplicate_segments(typer.displayed_text), f"{fixture_name}: duplicated text"
+        reference = _load_reference(take_dir)
+        expected = apply_formatting_commands(reference).strip()
+        assert typer.displayed_text.strip(), f"{take_name}: produced no text"
+        similarity = _similarity(typer.displayed_text, expected)
+        assert similarity >= REFERENCE_SIMILARITY_THRESHOLD, (
+            f"{take_name}: typed text diverged from reference "
+            f"(similarity {similarity:.3f})\n"
+            f"  typed:     {typer.displayed_text!r}\n"
+            f"  reference: {expected!r}"
+        )
+        assert not _has_duplicate_segments(typer.displayed_text), f"{take_name}: duplicated text"
 
-    def test_numbers_and_symbols_preserves_formatted_values(
-        self, mock_type, mock_bs, typer: ProgressiveTyper
-    ) -> None:
-        """The numbers_and_symbols fixture should keep the formatted numbers and symbols."""
-        fixture_dir = LOCAL_FIXTURES_DIR / "numbers_and_symbols"
-        if not fixture_dir.exists():
-            pytest.skip("numbers_and_symbols fixture not recorded")
-        chunks = _load_chunks(fixture_dir)
-        _replay_chunks(typer, chunks)
-
-        assert "$42.50" in typer.displayed_text
-        assert "1%" in typer.displayed_text
-        assert "8472" in typer.displayed_text
+        fixture_name = take_name.split("/")[0]
+        info = FIXTURES.get(fixture_name, {})
+        if info.get("verify_against_script"):
+            script_similarity = _similarity(reference, info["script"])
+            assert script_similarity >= SCRIPT_SIMILARITY_THRESHOLD, (
+                f"{take_name}: captured reference diverged from the script "
+                f"(similarity {script_similarity:.3f})\n"
+                f"  script:    {info['script']!r}\n"
+                f"  reference: {reference!r}"
+            )
