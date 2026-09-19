@@ -134,8 +134,9 @@ Copy `hotwords.example.txt` to `hotwords.txt` and add domain-specific terms that
 Edit `src/dictate/config.py`:
 
 ```python
-TRANSCRIBE_INTERVAL = 2   # seconds between transcription cycles
-KEEP_TAIL_SECONDS = 3     # audio kept for context when finalizing a continuous segment
+TRANSCRIBE_INTERVAL = 2            # floor between cycles when new audio is sparse
+TRANSCRIBE_MIN_AUDIO_SECONDS = 1.0 # new audio that triggers an early cycle
+KEEP_TAIL_SECONDS = 3              # audio kept for context when finalizing a continuous segment
 ```
 
 ## Architecture

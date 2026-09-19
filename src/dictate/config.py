@@ -22,7 +22,8 @@ WHISPER_NO_REPEAT_NGRAM_SIZE = 3
 WHISPER_REPETITION_PENALTY = 1.2
 
 # Transcription Timing
-TRANSCRIBE_INTERVAL = 2  # seconds between transcription cycles
+TRANSCRIBE_INTERVAL = 2  # seconds between transcription cycles (floor when audio is sparse)
+TRANSCRIBE_MIN_AUDIO_SECONDS = 1.0  # new audio that triggers an early transcription cycle
 KEEP_TAIL_SECONDS = 3  # audio retained for context when finalizing a continuous segment
 
 # Vocabulary hints - bias Whisper toward domain-specific terms it often mishears

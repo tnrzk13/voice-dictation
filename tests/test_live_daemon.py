@@ -1,11 +1,13 @@
 """Tests for the live dictation daemon message protocol."""
 
 import json
+import threading
 import time
 from unittest.mock import MagicMock, patch
 
 from dictate.config import BYTES_PER_SAMPLE, BYTES_PER_SECOND
 from dictate.live.daemon import (
+    _AudioBuffer,
     _collapse_repetitions,
     _concat_transcriptions,
     _finalize_completed_segments,
@@ -295,6 +297,86 @@ class TestCommitPolicy:
 
         # 8000 bytes is 0.25s of audio, far below the old 20s window
         assert mock_finalize.call_count >= 1
+
+
+class TestAudioBuffer:
+    def test_appends_and_snapshots_audio(self):
+        buf = _AudioBuffer()
+        buf.append(b"\x01\x02", max_bytes=1000)
+        assert buf.take_snapshot() == b"\x01\x02"
+
+    def test_pending_bytes_accumulate_across_appends(self):
+        buf = _AudioBuffer()
+        buf.append(b"\x00" * 40, max_bytes=1000)
+        buf.append(b"\x00" * 60, max_bytes=1000)
+        assert buf.wait_for_audio(watermark_bytes=100, timeout=0.1) is True
+
+    def test_below_watermark_times_out(self):
+        buf = _AudioBuffer()
+        buf.append(b"\x00" * 10, max_bytes=1000)
+        assert buf.wait_for_audio(watermark_bytes=100, timeout=0.01) is False
+
+    def test_snapshot_resets_pending_counter(self):
+        buf = _AudioBuffer()
+        buf.append(b"\x00" * 100, max_bytes=1000)
+        buf.take_snapshot()
+        assert buf.wait_for_audio(watermark_bytes=1, timeout=0.01) is False
+
+    def test_finish_wakes_waiter_and_marks_done(self):
+        buf = _AudioBuffer()
+        buf.finish()
+        assert buf.wait_for_audio(watermark_bytes=100, timeout=0.1) is True
+        assert buf.is_finished() is True
+
+    def test_overflow_trims_oldest_audio(self):
+        buf = _AudioBuffer()
+        buf.append(b"\x00" * 100, max_bytes=50)
+        assert len(buf.take_snapshot()) <= 50
+
+    def test_trim_removes_from_front(self):
+        buf = _AudioBuffer()
+        buf.append(b"\x01\x02\x03\x04", max_bytes=1000)
+        buf.trim(2)
+        assert buf.take_snapshot() == b"\x03\x04"
+
+    def test_trim_ignores_non_positive(self):
+        buf = _AudioBuffer()
+        buf.append(b"\x01\x02", max_bytes=1000)
+        buf.trim(0)
+        assert buf.take_snapshot() == b"\x01\x02"
+
+
+class TestLengthGating:
+    @patch("dictate.live.daemon.TRANSCRIBE_INTERVAL", 10.0)
+    @patch("dictate.live.daemon.TRANSCRIBE_MIN_AUDIO_SECONDS", 0.1)
+    def test_audio_watermark_wakes_transcriber_before_floor(self):
+        """Enough new audio wakes the transcriber well before the interval floor."""
+        model = _make_whisper_model([_make_segment(" Hello world.")])
+        first_message = threading.Event()
+        release = threading.Event()
+        sent_audio = threading.Event()
+
+        conn = MagicMock()
+        conn.sendall.side_effect = lambda data: first_message.set()
+
+        def recv_audio_then_hold(size):
+            if not sent_audio.is_set():
+                sent_audio.set()
+                return b"\x00" * 8000  # 0.25s, above the 0.1s watermark
+            release.wait(timeout=5)
+            return b""
+
+        conn.recv.side_effect = recv_audio_then_hold
+
+        thread = threading.Thread(
+            target=handle_client, args=(conn, model), daemon=True
+        )
+        thread.start()
+        try:
+            assert first_message.wait(timeout=2.0), "expected a partial before the floor"
+        finally:
+            release.set()
+            thread.join(timeout=5)
 
 
 class TestTrimOldestAudio:

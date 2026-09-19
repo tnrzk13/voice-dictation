@@ -6,7 +6,8 @@ faster-whisper. Streams back partial/final results as newline-delimited JSON.
 
 Architecture:
   - Receiver thread: reads raw PCM bytes from socket, appends to shared buffer
-  - Transcriber thread: every ~2s, transcribes accumulated audio with Whisper
+  - Transcriber thread: transcribes once enough new audio accumulates, with a
+    timer floor so sparse audio still gets cycles
 
 Protocol:
   Client sends: raw PCM int16 bytes (continuous stream)
@@ -35,6 +36,7 @@ from dictate.config import (
     SOCKET_PATH,
     SOCKET_TIMEOUT,
     TRANSCRIBE_INTERVAL,
+    TRANSCRIBE_MIN_AUDIO_SECONDS,
     WHISPER_BEAM_SIZE,
     WHISPER_HOTWORDS,
     WHISPER_NO_REPEAT_NGRAM_SIZE,
@@ -52,37 +54,82 @@ from dictate.daemon_support import (
 from dictate.model_loader import add_model_args, load_whisper_model
 
 
+class _AudioBuffer:
+    """Shared PCM buffer coordinating the receiver and transcriber threads.
+
+    Counts newly received audio separately from the retained context tail so
+    the transcriber wakes on un-transcribed audio rather than raw buffer
+    length, which always includes context kept for re-decoding.
+    """
+
+    def __init__(self) -> None:
+        self._data = bytearray()
+        self._condition = threading.Condition()
+        self._pending_bytes = 0
+        self._finished = False
+
+    def append(self, data: bytes, max_bytes: int) -> None:
+        with self._condition:
+            self._data.extend(data)
+            self._pending_bytes += len(data)
+            if len(self._data) > max_bytes:
+                _trim_oldest_audio(self._data, max_bytes)
+            self._condition.notify()
+
+    def finish(self) -> None:
+        with self._condition:
+            self._finished = True
+            self._condition.notify_all()
+
+    def wait_for_audio(self, watermark_bytes: int, timeout: float) -> bool:
+        """Block until enough new audio arrives, the client finishes, or timeout."""
+        with self._condition:
+            return self._condition.wait_for(
+                lambda: self._finished or self._pending_bytes >= watermark_bytes,
+                timeout=timeout,
+            )
+
+    def take_snapshot(self) -> bytes:
+        """Return buffered audio, resetting the new-audio counter."""
+        with self._condition:
+            self._pending_bytes = 0
+            return bytes(self._data)
+
+    def is_finished(self) -> bool:
+        with self._condition:
+            return self._finished
+
+    def trim(self, num_bytes: int) -> None:
+        if num_bytes <= 0:
+            return
+        with self._condition:
+            del self._data[:num_bytes]
+
+
 def handle_client(connection: socket.socket, model) -> None:
     """Process a single client's streaming audio session.
 
     Spawns a receiver thread to collect audio and runs the transcription
     loop on the current thread.
     """
-    audio_buffer = bytearray()
-    buffer_lock = threading.Lock()
-    client_done = threading.Event()
+    audio = _AudioBuffer()
 
     receiver = threading.Thread(
         target=_receive_audio,
-        args=(connection, audio_buffer, buffer_lock, client_done),
+        args=(connection, audio),
         daemon=True,
     )
     receiver.start()
 
     try:
-        _transcribe_loop(connection, model, audio_buffer, buffer_lock, client_done)
+        _transcribe_loop(connection, model, audio)
     except (ConnectionResetError, BrokenPipeError) as e:
         logging.warning(f"Client disconnected: {e}")
     except Exception as e:
         logging.error(f"Error handling client: {e}", exc_info=True)
 
 
-def _receive_audio(
-    connection: socket.socket,
-    audio_buffer: bytearray,
-    buffer_lock: threading.Lock,
-    client_done: threading.Event,
-) -> None:
+def _receive_audio(connection: socket.socket, audio: _AudioBuffer) -> None:
     """Receiver thread: read raw PCM bytes from socket into shared buffer.
 
     Drops the oldest audio if the buffer grows beyond MAX_BUFFER_SECONDS,
@@ -99,14 +146,11 @@ def _receive_audio(
                 continue
             if not data:
                 break
-            with buffer_lock:
-                audio_buffer.extend(data)
-                if len(audio_buffer) > max_buffer_bytes:
-                    _trim_oldest_audio(audio_buffer, max_buffer_bytes)
+            audio.append(data, max_buffer_bytes)
     except (ConnectionResetError, BrokenPipeError, OSError):
         pass
     finally:
-        client_done.set()
+        audio.finish()
 
 
 def _trim_oldest_audio(audio_buffer: bytearray, max_bytes: int) -> None:
@@ -119,29 +163,25 @@ def _trim_oldest_audio(audio_buffer: bytearray, max_bytes: int) -> None:
     logging.warning(f"Audio buffer overflow: dropped {trim} bytes of old audio")
 
 
-def _transcribe_loop(
-    connection: socket.socket,
-    model,
-    audio_buffer: bytearray,
-    buffer_lock: threading.Lock,
-    client_done: threading.Event,
-) -> None:
-    """Transcription loop: periodically transcribe accumulated audio.
+def _transcribe_loop(connection: socket.socket, model, audio: _AudioBuffer) -> None:
+    """Transcription loop: transcribe as soon as enough audio accumulates.
 
-    Finalizes completed segments (and the stable prefix of a continuous
-    segment) each cycle, trimming the buffer so only the in-progress tail is
+    Wakes on TRANSCRIBE_MIN_AUDIO_SECONDS of new audio, falling back to
+    TRANSCRIBE_INTERVAL so sparse or silent audio still gets a cycle. Each
+    cycle finalizes completed segments (and the stable prefix of a
+    continuous segment), trimming the buffer so only the in-progress tail is
     re-transcribed with full context.
     """
     finalized_text = ""
     last_partial_text = ""
+    watermark_bytes = int(TRANSCRIBE_MIN_AUDIO_SECONDS * BYTES_PER_SECOND)
 
-    while not client_done.is_set():
-        client_done.wait(timeout=TRANSCRIBE_INTERVAL)
+    while not audio.is_finished():
+        audio.wait_for_audio(watermark_bytes, TRANSCRIBE_INTERVAL)
 
-        with buffer_lock:
-            if not audio_buffer:
-                continue
-            snapshot = bytes(audio_buffer)
+        snapshot = audio.take_snapshot()
+        if not snapshot:
+            continue
 
         segments = _transcribe(model, snapshot, initial_prompt=finalized_text)
         full_text = "".join(seg["text"] for seg in segments)
@@ -156,9 +196,7 @@ def _transcribe_loop(
         finalized_text, bytes_trimmed = _finalize_completed_segments(
             segments, finalized_text
         )
-        if bytes_trimmed:
-            with buffer_lock:
-                del audio_buffer[:bytes_trimmed]
+        audio.trim(bytes_trimmed)
 
     # Use last partial as the final when available - avoids re-running
     # Whisper inference which adds 2-5s latency on CPU. Fall back to
@@ -166,8 +204,7 @@ def _transcribe_loop(
     if last_partial_text:
         _send_message(connection, "final", last_partial_text)
     else:
-        with buffer_lock:
-            snapshot = bytes(audio_buffer)
+        snapshot = audio.take_snapshot()
         if snapshot:
             segments = _transcribe(model, snapshot, initial_prompt=finalized_text)
             final_text = "".join(seg["text"] for seg in segments)

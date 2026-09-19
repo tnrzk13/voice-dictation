@@ -23,12 +23,14 @@ The daemon uses **faster-whisper** (an optimized version of OpenAI's Whisper mod
 
 Each client connection is handled in its own daemon thread, so the main thread can accept new connections while others are transcribing. Each connection then spawns **two worker threads**:
 
-1. **Receiver thread** - Reads raw PCM bytes off the socket and appends them to an `audio_buffer` (a growing `bytearray`). If the model falls behind, the buffer is capped at 60 seconds and the oldest audio is dropped to prevent unbounded memory growth.
-2. **Transcriber thread** - Every **2 seconds**, takes a snapshot of the accumulated audio buffer, converts it to float32, and runs Whisper inference on it.
+1. **Receiver thread** - Reads raw PCM bytes off the socket and appends them to an `_AudioBuffer` (a growing `bytearray` plus a `Condition` that wakes the transcriber), then signals the transcriber. If the model falls behind, the buffer is capped at 60 seconds and the oldest audio is dropped to prevent unbounded memory growth.
+2. **Transcriber thread** - Wakes when enough *new* audio has accumulated (1s by default), or after **2 seconds** as a floor, takes a snapshot of the accumulated audio buffer, converts it to float32, and runs Whisper inference on it.
+
+The length gate counts bytes received since the last snapshot, not raw buffer length - the buffer always retains a context tail (see the commit policy), so gating on buffer size would fire immediately every cycle. The timer floor keeps sparse or silent audio from stalling transcription; on continuous speech the gate dominates, producing partials roughly once per second instead of once per two.
 
 ### Partial vs Final results
 
-**Partial results** are sent every 2 seconds while you're still speaking. Each partial represents Whisper's best guess at *everything said so far*. Crucially, partials can change - Whisper might hear "hello" at T=2s, then revise to "hello world" at T=4s, or even self-correct "hello ward" to "hello world".
+**Partial results** are sent each transcription cycle while you're still speaking - as soon as 1s of new audio accumulates, or every 2s at the floor. Each partial represents Whisper's best guess at *everything said so far*. Crucially, partials can change - Whisper might hear "hello" at T=1s, then revise to "hello world" at T=2s, or even self-correct "hello ward" to "hello world".
 
 **Final results** are sent when:
 - You stop recording (the client shuts down its write side of the socket, the daemon sees EOF)
@@ -163,7 +165,7 @@ An `InputMonitor` runs two background threads using `pynput` - one for keyboard,
 | Mouse listener thread | Listens for mouse clicks via pynput |
 | Client receiver thread | Reads JSON from daemon, calls `typer.apply_partial()` / `apply_final()` |
 | Daemon receiver thread | Reads raw PCM bytes from socket into `audio_buffer` |
-| Daemon transcriber thread | Runs Whisper every 2s, sends JSON results back |
+| Daemon transcriber thread | Runs Whisper when 1s of new audio arrives (2s floor), sends JSON results back |
 
 ## Configuration Constants (`config.py`)
 
@@ -171,7 +173,8 @@ An `InputMonitor` runs two background threads using `pynput` - one for keyboard,
 |----------|-------|---------|
 | `SAMPLE_RATE` | 16000 | Whisper requirement |
 | `BYTES_PER_SAMPLE` | 2 | int16 format |
-| `TRANSCRIBE_INTERVAL` | 2s | Time between Whisper runs |
+| `TRANSCRIBE_INTERVAL` | 2s | Floor between Whisper runs when new audio is sparse |
+| `TRANSCRIBE_MIN_AUDIO_SECONDS` | 1s | New audio that triggers an early Whisper run |
 | `KEEP_TAIL_SECONDS` | 3s | Audio kept for context when finalizing a continuous segment |
 | `WHISPER_MODEL_SIZE` | "large-v3-turbo" | Default model, ~1.6 GB download |
 | `XDOTOOL_KEYSTROKE_DELAY` | 12ms | Delay between typed characters |
