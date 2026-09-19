@@ -9,10 +9,13 @@ Architecture:
   - Transcriber thread: transcribes once enough new audio accumulates, with a
     timer floor so sparse audio still gets cycles
 
+At EOF the whole session is re-decoded with full context to restore the
+sentence punctuation that streaming finalization drops (see _transcribe_final).
+
 Protocol:
   Client sends: raw PCM int16 bytes (continuous stream)
   Client sends: EOF (shutdown write side) to signal end
-  Daemon sends: {"type": "partial", "text": "..."}\n
+  Daemon sends: {"type": "partial", "text": "...", "finalized": "..."}\n
   Daemon sends: {"type": "final", "text": "..."}\n
   Daemon sends: {"type": "end"}\n
 """
@@ -31,8 +34,10 @@ from dictate.config import (
     BYTES_PER_SAMPLE,
     BYTES_PER_SECOND,
     DAEMON_LOG,
+    FINAL_PUNCTUATION_PROMPT,
     KEEP_TAIL_SECONDS,
     MAX_BUFFER_SECONDS,
+    MAX_SESSION_SECONDS,
     SOCKET_PATH,
     SOCKET_TIMEOUT,
     TRANSCRIBE_INTERVAL,
@@ -57,24 +62,43 @@ from dictate.model_loader import add_model_args, load_whisper_model
 class _AudioBuffer:
     """Shared PCM buffer coordinating the receiver and transcriber threads.
 
-    Counts newly received audio separately from the retained context tail so
-    the transcriber wakes on un-transcribed audio rather than raw buffer
-    length, which always includes context kept for re-decoding.
+    Keeps three views: the working buffer (trimmed as chunks finalize), a
+    new-audio counter so the transcriber wakes on un-transcribed audio rather
+    than buffer length, and the untrimmed session audio used to re-decode the
+    whole utterance for the final punctuation pass.
     """
 
     def __init__(self) -> None:
         self._data = bytearray()
+        self._session_data = bytearray()
+        self._session_overflowed = False
         self._condition = threading.Condition()
         self._pending_bytes = 0
         self._finished = False
 
-    def append(self, data: bytes, max_bytes: int) -> None:
+    def append(self, data: bytes, max_bytes: int, max_session_bytes: int = None) -> None:
+        if max_session_bytes is None:
+            max_session_bytes = MAX_SESSION_SECONDS * BYTES_PER_SECOND
         with self._condition:
             self._data.extend(data)
             self._pending_bytes += len(data)
             if len(self._data) > max_bytes:
                 _trim_oldest_audio(self._data, max_bytes)
+            if not self._session_overflowed:
+                self._session_data.extend(data)
+                if len(self._session_data) > max_session_bytes:
+                    self._session_overflowed = True
             self._condition.notify()
+
+    def session_snapshot(self):
+        """Return (all session audio, complete) for the full-context final.
+
+        Complete is False once the session exceeded MAX_SESSION_SECONDS; the
+        caller then falls back to the streamed partial instead of punctuating
+        from a partial recording.
+        """
+        with self._condition:
+            return bytes(self._session_data), not self._session_overflowed
 
     def finish(self) -> None:
         with self._condition:
@@ -137,6 +161,7 @@ def _receive_audio(connection: socket.socket, audio: _AudioBuffer) -> None:
     """
     connection.settimeout(SOCKET_TIMEOUT)
     max_buffer_bytes = MAX_BUFFER_SECONDS * BYTES_PER_SECOND
+    max_session_bytes = MAX_SESSION_SECONDS * BYTES_PER_SECOND
 
     try:
         while True:
@@ -146,7 +171,7 @@ def _receive_audio(connection: socket.socket, audio: _AudioBuffer) -> None:
                 continue
             if not data:
                 break
-            audio.append(data, max_buffer_bytes)
+            audio.append(data, max_buffer_bytes, max_session_bytes)
     except (ConnectionResetError, BrokenPipeError, OSError):
         pass
     finally:
@@ -198,21 +223,46 @@ def _transcribe_loop(connection: socket.socket, model, audio: _AudioBuffer) -> N
         )
         audio.trim(bytes_trimmed)
 
-    # Use last partial as the final when available - avoids re-running
-    # Whisper inference which adds 2-5s latency on CPU. Fall back to
-    # re-transcription only for sessions too short to produce a partial.
-    if last_partial_text:
-        _send_message(connection, "final", last_partial_text)
-    else:
-        snapshot = audio.take_snapshot()
-        if snapshot:
-            segments = _transcribe(model, snapshot, initial_prompt=finalized_text)
-            final_text = "".join(seg["text"] for seg in segments)
-            if final_text:
-                text = _concat_transcriptions(finalized_text, final_text)
-                _send_message(connection, "final", text)
+    final_text = _final_text(model, audio, last_partial_text)
+    if final_text:
+        _send_message(connection, "final", final_text)
 
     _send_message(connection, "end", "")
+
+
+def _final_text(model, audio: _AudioBuffer, last_partial_text: str) -> str:
+    """Produce the final transcript from the whole utterance.
+
+    Streaming finalizes chunks before Whisper has the rest of the sentence, so
+    commas and sentence-final periods are lost. Re-decoding all session audio
+    once at the end restores them. Falls back to the last partial when the
+    session exceeded MAX_SESSION_SECONDS or the re-decode yields nothing.
+    """
+    session_audio, complete = audio.session_snapshot()
+    if session_audio and complete:
+        segments = _transcribe_final(model, session_audio)
+        full_text = "".join(seg["text"] for seg in segments).strip()
+        if full_text:
+            return full_text
+    return last_partial_text
+
+
+def _transcribe_final(model, audio_bytes: bytes) -> list:
+    """Full-context decode for the final transcript.
+
+    VAD trimming, the anti-repetition penalties, and a bare hotword prompt
+    each suppress sentence-final punctuation, which is the opposite of what
+    the final pass wants. Relax them and seed a punctuated style instead.
+    """
+    return _transcribe(
+        model,
+        audio_bytes,
+        initial_prompt=FINAL_PUNCTUATION_PROMPT,
+        word_timestamps=False,
+        vad_filter=False,
+        repetition_penalty=1.0,
+        no_repeat_ngram_size=0,
+    )
 
 
 def _finalize_completed_segments(segments, finalized_text):
@@ -333,28 +383,44 @@ def _collapse_repetitions(text: str) -> str:
     return leading + " ".join(words)
 
 
-def _transcribe(model, audio_bytes: bytes, initial_prompt: str = "") -> list:
+def _transcribe(
+    model,
+    audio_bytes: bytes,
+    initial_prompt: str = "",
+    word_timestamps: bool = True,
+    vad_filter: bool = None,
+    repetition_penalty: float = None,
+    no_repeat_ngram_size: int = None,
+) -> list:
     """Transcribe raw PCM int16 bytes, returning segment dicts.
 
     ``initial_prompt`` primes the decoder with text finalized before the
     trimmed buffer, so re-decoding a mid-sentence tail keeps its context
-    instead of inventing or dropping boundary words.
+    instead of inventing or dropping boundary words. The remaining overrides
+    exist for the final pass (see ``_transcribe_final``); they default to the
+    streaming values.
 
     Each segment has 'text', 'start', 'end', and 'words' (per-word start/end
     spans) keys. Callers that only need the full text can join segment texts.
     """
+    if vad_filter is None:
+        vad_filter = WHISPER_VAD_FILTER
+    if repetition_penalty is None:
+        repetition_penalty = WHISPER_REPETITION_PENALTY
+    if no_repeat_ngram_size is None:
+        no_repeat_ngram_size = WHISPER_NO_REPEAT_NGRAM_SIZE
     audio = _pcm_to_float32(audio_bytes)
     segments, _ = model.transcribe(
         audio,
         language="en",
         beam_size=WHISPER_BEAM_SIZE,
         temperature=WHISPER_TEMPERATURE,
-        vad_filter=WHISPER_VAD_FILTER,
+        vad_filter=vad_filter,
         vad_parameters=dict(min_silence_duration_ms=WHISPER_VAD_MIN_SILENCE_MS),
         hotwords=WHISPER_HOTWORDS,
-        repetition_penalty=WHISPER_REPETITION_PENALTY,
-        no_repeat_ngram_size=WHISPER_NO_REPEAT_NGRAM_SIZE,
-        word_timestamps=True,
+        repetition_penalty=repetition_penalty,
+        no_repeat_ngram_size=no_repeat_ngram_size,
+        word_timestamps=word_timestamps,
         initial_prompt=initial_prompt or None,
     )
     return [

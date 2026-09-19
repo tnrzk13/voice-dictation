@@ -5,6 +5,7 @@ Linux voice dictation - speak into your mic, text appears at your cursor. Powere
 ## Features
 
 - **Real-time streaming**: Words appear and self-correct as you speak
+- **Automatic punctuation**: Whisper punctuates and capitalizes sentences; a full-context re-decode at the end of a session restores commas and closing periods
 - **Spoken formatting commands**: Say "slash", "comma", "open parenthesis", etc. to insert symbols
 - **GPU-accelerated**: Runs on NVIDIA GPUs by default, freeing your CPU for other tasks
 - **Daemon architecture**: Whisper model stays loaded in memory for fast transcription
@@ -135,9 +136,17 @@ Edit `src/dictate/config.py`:
 
 ```python
 TRANSCRIBE_INTERVAL = 2            # floor between cycles when new audio is sparse
-TRANSCRIBE_MIN_AUDIO_SECONDS = 0.5 # new audio that triggers an early cycle
+TRANSCRIBE_MIN_AUDIO_SECONDS = 0.3 # new audio that triggers an early cycle
 KEEP_TAIL_SECONDS = 3              # audio kept for context when finalizing a continuous segment
+MAX_SESSION_SECONDS = 60           # session audio kept for the full-context final
+FINAL_PUNCTUATION_PROMPT = "..."   # punctuation-style seed for the final decode
 ```
+
+### Punctuation
+
+Whisper inserts sentence punctuation and capitalization on its own, and you can force a mark by saying it ("comma", "period", "question mark"). Sentence punctuation appears as speech is segmented at pauses.
+
+Streaming finalizes chunks before Whisper has the rest of the sentence, which can drop commas and closing periods. At the end of a session the daemon re-decodes the whole utterance with full context to restore them. Punctuation that lands after you have already stopped is not typed, since stopping must never type into the focused window.
 
 ## Architecture
 

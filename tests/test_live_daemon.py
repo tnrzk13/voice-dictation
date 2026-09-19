@@ -10,6 +10,7 @@ from dictate.live.daemon import (
     _AudioBuffer,
     _collapse_repetitions,
     _concat_transcriptions,
+    _final_text,
     _finalize_completed_segments,
     _send_message,
     _trim_oldest_audio,
@@ -368,6 +369,58 @@ class TestAudioBuffer:
         buf.append(b"\x01\x02", max_bytes=1000)
         buf.trim(0)
         assert buf.take_snapshot() == b"\x01\x02"
+
+    def test_session_audio_survives_working_buffer_trim(self):
+        buf = _AudioBuffer()
+        buf.append(b"\x01\x02\x03\x04", max_bytes=2)
+        session, complete = buf.session_snapshot()
+        assert session == b"\x01\x02\x03\x04"
+        assert complete is True
+        assert len(buf.take_snapshot()) <= 2
+
+    def test_session_snapshot_marks_overflow_incomplete(self):
+        buf = _AudioBuffer()
+        buf.append(b"\x00" * 100, max_bytes=1000, max_session_bytes=50)
+        _, complete = buf.session_snapshot()
+        assert complete is False
+
+    def test_session_snapshot_complete_under_cap(self):
+        buf = _AudioBuffer()
+        buf.append(b"\x00" * 40, max_bytes=1000, max_session_bytes=100)
+        session, complete = buf.session_snapshot()
+        assert session == b"\x00" * 40
+        assert complete is True
+
+
+class TestFinalText:
+    def test_prefers_full_context_transcription(self):
+        """The final re-decodes all session audio for sentence punctuation."""
+        audio = _AudioBuffer()
+        audio.append(b"\x00" * 8000, max_bytes=100000)
+        model = _make_whisper_model([_make_segment(" Corrected final.")])
+        assert _final_text(model, audio, "partial words") == "Corrected final."
+
+    def test_falls_back_to_partial_when_session_overflowed(self):
+        audio = _AudioBuffer()
+        audio.append(b"\x00" * 100, max_bytes=100000, max_session_bytes=50)
+        model = _make_whisper_model([_make_segment(" Ignored.")])
+        assert _final_text(model, audio, "partial words") == "partial words"
+
+    def test_falls_back_when_full_context_is_empty(self):
+        audio = _AudioBuffer()
+        audio.append(b"\x00" * 8000, max_bytes=100000)
+        model = _make_whisper_model([])
+        assert _final_text(model, audio, "partial words") == "partial words"
+
+    def test_falls_back_when_there_is_no_session_audio(self):
+        audio = _AudioBuffer()
+        model = _make_whisper_model([_make_segment(" Ignored.")])
+        assert _final_text(model, audio, "partial words") == "partial words"
+
+    def test_falls_back_when_no_partial_and_no_audio(self):
+        audio = _AudioBuffer()
+        model = _make_whisper_model([_make_segment(" Ignored.")])
+        assert _final_text(model, audio, "") == ""
 
 
 class TestLengthGating:

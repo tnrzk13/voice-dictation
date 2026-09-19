@@ -21,9 +21,14 @@ WHISPER_VAD_MIN_SILENCE_MS = 500
 WHISPER_NO_REPEAT_NGRAM_SIZE = 3
 WHISPER_REPETITION_PENALTY = 1.2
 
+# Final pass - the full-context decode that restores sentence punctuation.
+# A punctuated seed biases sentence style; without it the decoder often omits
+# the closing period, especially when hotwords prime it with a bare word list.
+FINAL_PUNCTUATION_PROMPT = "Okay, here is a sentence, with commas, and a full stop."
+
 # Transcription Timing
 TRANSCRIBE_INTERVAL = 2  # seconds between transcription cycles (floor when audio is sparse)
-TRANSCRIBE_MIN_AUDIO_SECONDS = 0.5  # new audio that triggers an early transcription cycle
+TRANSCRIBE_MIN_AUDIO_SECONDS = 0.3  # new audio that triggers an early transcription cycle
 KEEP_TAIL_SECONDS = 3  # audio retained for context when finalizing a continuous segment
 
 # Vocabulary hints - bias Whisper toward domain-specific terms it often mishears
@@ -50,6 +55,7 @@ MESSAGE_RECV_BUFFER_BYTES = 4096  # bytes read per socket recv for JSON messages
 
 # Buffering
 MAX_BUFFER_SECONDS = 60  # hard cap on audio buffer growth when model is slow
+MAX_SESSION_SECONDS = 60  # audio kept for the full-context final; longer sessions fall back
 
 # UI/UX
 XDOTOOL_KEYSTROKE_DELAY = 12  # milliseconds between keystrokes
