@@ -10,6 +10,7 @@ stops revising them, so committed text is genuinely immutable. Deriving it
 client-side raced ahead of that and let a later revision retype visible text.
 """
 
+import re
 import time
 from typing import Tuple
 
@@ -75,6 +76,30 @@ class ProgressiveTyper:
         self._execute_edit(backspaces, to_type)
         return backspaces, to_type
 
+    def apply_final_trailing(self, text: str) -> Tuple[int, str]:
+        """Append only the sentence mark from a final result, never rewrite text.
+
+        Used when the session was already stopped by a key: the cursor may no
+        longer be where the typer left it, so backspacing into the existing
+        text could corrupt it. Only a trailing period/question/exclamation is
+        added, and only when the final's last word matches the display.
+        """
+        target = apply_formatting_commands(text).strip()
+        match = _TERMINAL_PUNCT_RE.search(target)
+        if not match:
+            return 0, ""
+        body = target[: match.start()].rstrip()
+        current = self.displayed_text.rstrip()
+        if not current or current[-1] in _TRAILING_PUNCT:
+            return 0, ""
+        if _last_word(current) != _last_word(body):
+            return 0, ""
+        to_type = match.group(0) + " "
+        self._committed = current + to_type
+        self._pending = ""
+        self._execute_edit(0, to_type)
+        return 0, to_type
+
     def _compute_edit(self, old: str, new: str) -> Tuple[int, str]:
         """Compute minimal backspaces and new text to transform old into new."""
         common_length = _find_common_prefix_length(old, new)
@@ -104,6 +129,16 @@ def _capitalize_first(text: str) -> str:
     if not text:
         return text
     return text[0].upper() + text[1:]
+
+
+_TERMINAL_PUNCT_RE = re.compile(r"[.?!]+$")
+_TRAILING_PUNCT = ".,?!;:\"')]}"
+
+
+def _last_word(text: str) -> str:
+    """Return the final word lowercased with surrounding punctuation removed."""
+    words = text.split()
+    return words[-1].strip(".,?!;:\"'").lower() if words else ""
 
 
 def _finalized_prefix(target: str, finalized: str) -> str:
