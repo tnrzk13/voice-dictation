@@ -212,58 +212,6 @@ class TestProgressiveTyperFinals:
 
 @patch("dictate.live.typer._send_backspaces")
 @patch("dictate.live.typer._type_text")
-class TestApplyFinalTrailing:
-    def test_appends_terminal_period(self, mock_type, mock_bs):
-        typer = ProgressiveTyper()
-        typer.apply_partial("hello world")
-        backspaces, typed = typer.apply_final_trailing("hello world.")
-        assert backspaces == 0
-        assert typed == ". "
-        assert typer.displayed_text == "Hello world. "
-
-    def test_appends_question_mark(self, mock_type, mock_bs):
-        typer = ProgressiveTyper()
-        typer.apply_partial("are you there")
-        backspaces, typed = typer.apply_final_trailing("are you there?")
-        assert typed == "? "
-
-    def test_ignores_midtext_differences(self, mock_type, mock_bs):
-        """Only the trailing mark is taken; interior commas are not retyped."""
-        typer = ProgressiveTyper()
-        typer.apply_partial("so this is a test")
-        backspaces, typed = typer.apply_final_trailing("So, this is, a test.")
-        assert backspaces == 0
-        assert typed == ". "
-        assert typer.displayed_text == "So this is a test. "
-
-    def test_noop_when_already_punctuated(self, mock_type, mock_bs):
-        typer = ProgressiveTyper()
-        typer.apply_partial("hello world.")
-        assert typer.apply_final_trailing("hello world.") == (0, "")
-
-    def test_noop_when_last_word_differs(self, mock_type, mock_bs):
-        typer = ProgressiveTyper()
-        typer.apply_partial("hello world")
-        assert typer.apply_final_trailing("goodbye moon.") == (0, "")
-
-    def test_noop_when_final_has_no_terminal_punctuation(self, mock_type, mock_bs):
-        typer = ProgressiveTyper()
-        typer.apply_partial("hello world")
-        assert typer.apply_final_trailing("hello world") == (0, "")
-
-    def test_noop_when_nothing_displayed(self, mock_type, mock_bs):
-        typer = ProgressiveTyper()
-        assert typer.apply_final_trailing("hello world.") == (0, "")
-
-    def test_noop_when_display_already_ends_with_punctuation(self, mock_type, mock_bs):
-        """Don't append after a comma; a sentence mark there would read wrong."""
-        typer = ProgressiveTyper()
-        typer.apply_partial("hello world,")
-        assert typer.apply_final_trailing("hello world.") == (0, "")
-
-
-@patch("dictate.live.typer._send_backspaces")
-@patch("dictate.live.typer._type_text")
 class TestProgressiveTyperXdotoolCalls:
     def test_no_xdotool_calls_when_nothing_changes(self, mock_type, mock_bs):
         typer = ProgressiveTyper()

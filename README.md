@@ -146,7 +146,7 @@ FINAL_PUNCTUATION_PROMPT = "..."   # punctuation-style seed for the final decode
 
 Whisper inserts sentence punctuation and capitalization on its own, and you can force a mark by saying it ("comma", "period", "question mark"). Sentence punctuation appears as speech is segmented at pauses.
 
-Streaming finalizes chunks before Whisper has the rest of the sentence, which can drop commas and closing periods. At the end of a session the daemon re-decodes the whole utterance with full context to restore them. If you are still recording, the typer applies that final in place. If you have already stopped, only the closing sentence mark is appended at the cursor and nothing else is retyped, so a stop key can never cause a mid-text rewrite.
+Streaming finalizes chunks before Whisper has the rest of the sentence, which can drop commas and closing periods. At the end of a session the daemon re-decodes the whole utterance with full context to restore them. Punctuation that lands after you have already stopped is not typed, since stopping must never type into the focused window.
 
 ## Architecture
 

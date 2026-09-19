@@ -46,7 +46,7 @@ Streaming finalizes chunks before Whisper has the rest of the sentence, so comma
 
 Hotwords stay enabled so domain terms survive. Sessions longer than `MAX_SESSION_SECONDS` skip the re-decode and fall back to the last partial, bounding memory and final-pass latency.
 
-The client treats a final differently once stopped. While the session is live it applies the full final (in-place punctuation). After a stop key it calls `apply_final_trailing`, which appends only the closing sentence mark and never backspaces: the cursor may have moved, so a mid-text rewrite could corrupt the text.
+The client only applies the final while the session is still live: once you press a stop key it suppresses all further messages, because typing after the stop gesture would land after the key the user just pressed (or in a window that has since taken focus). So with the default stop-key flow the punctuated final is produced but not typed.
 
 The protocol is newline-delimited JSON over the socket. Each partial's `text` is cumulative and carries `finalized`, the stable prefix the daemon has already committed:
 ```

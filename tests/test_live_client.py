@@ -43,22 +43,15 @@ class TestHandleMessage:
         typer.apply_partial.assert_not_called()
         typer.apply_final.assert_not_called()
 
-    def test_partials_suppressed_after_stop_event(self):
-        """Partials aren't typed after stop; only a trailing mark may be."""
+    def test_all_messages_suppressed_after_stop_event(self):
+        """Partials and finals are suppressed after stop - text is already on screen."""
         client, typer = self._make_client()
         stop = threading.Event()
         stop.set()
         client._stop_event = stop
-        client._handle_message(json.dumps({"type": "partial", "text": "hello world"}))
+        client._handle_message(json.dumps({"type": "partial", "text": "hello"}))
+        client._handle_message(json.dumps({"type": "final", "text": "hello"}))
         typer.apply_partial.assert_not_called()
-
-    def test_final_after_stop_appends_trailing_punctuation_only(self):
-        client, typer = self._make_client()
-        stop = threading.Event()
-        stop.set()
-        client._stop_event = stop
-        client._handle_message(json.dumps({"type": "final", "text": "hello world."}))
-        typer.apply_final_trailing.assert_called_once_with("hello world.")
         typer.apply_final.assert_not_called()
 
 

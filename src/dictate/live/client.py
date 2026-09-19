@@ -129,17 +129,14 @@ class LiveDaemonClient:
         msg_type = msg.get("type")
         text = msg.get("text", "")
 
-        stopped = self._stop_event is not None and self._stop_event.is_set()
-
         if msg_type == "end":
             self._done.set()
-        elif msg_type == "partial" and self._streaming and not stopped:
+        elif self._stop_event is not None and self._stop_event.is_set():
+            return
+        elif msg_type == "partial" and self._streaming:
             self._typer.apply_partial(text, msg.get("finalized", ""))
         elif msg_type == "final":
-            if stopped:
-                self._typer.apply_final_trailing(text)
-            else:
-                self._typer.apply_final(text)
+            self._typer.apply_final(text)
 
     @staticmethod
     def is_daemon_running() -> bool:
