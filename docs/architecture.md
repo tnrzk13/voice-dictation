@@ -45,7 +45,9 @@ daemon -> client:  {"type": "end",     "text": ""}
 
 ### The commit policy
 
-The daemon finalizes completed segments (bounded by silence) every cycle and keeps only the last segment's audio in the buffer. For continuous speech with no silence, it finalizes all but the last `KEEP_TAIL_SECONDS` (3s) of the segment. This keeps the buffer small for fast transcription while preserving context for the in-progress sentence.
+The daemon finalizes completed segments (bounded by silence) every cycle and keeps only the last segment's audio in the buffer. For continuous speech with no silence, it finalizes all but the last `KEEP_TAIL_SECONDS` (3s) of speech and trims the buffer to the start of the first kept word. The split comes from Whisper's **per-word timestamps** (`word_timestamps=True`), so pauses and speaking rate cannot skew it the way a word-count-over-duration estimate would. If timings are missing or misaligned (for example after repetition collapse rewrites a segment), the daemon defers finalization rather than guess.
+
+After a trim the buffer starts mid-sentence, so each transcription is primed with `initial_prompt` set to the finalized text. This gives the decoder the preceding context; without it, re-decoding a contextless tail makes Whisper drop or invent the boundary words.
 
 ## Phase 3: Text Formatting (`formatting.py`)
 

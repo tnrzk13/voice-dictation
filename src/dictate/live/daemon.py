@@ -143,7 +143,7 @@ def _transcribe_loop(
                 continue
             snapshot = bytes(audio_buffer)
 
-        segments = _transcribe(model, snapshot)
+        segments = _transcribe(model, snapshot, initial_prompt=finalized_text)
         full_text = "".join(seg["text"] for seg in segments)
         if not full_text:
             continue
@@ -169,7 +169,7 @@ def _transcribe_loop(
         with buffer_lock:
             snapshot = bytes(audio_buffer)
         if snapshot:
-            segments = _transcribe(model, snapshot)
+            segments = _transcribe(model, snapshot, initial_prompt=finalized_text)
             final_text = "".join(seg["text"] for seg in segments)
             if final_text:
                 text = _concat_transcriptions(finalized_text, final_text)
@@ -203,35 +203,54 @@ def _finalize_single_segment(segments, finalized_text):
     """Finalize a single continuous segment while keeping a context tail.
 
     Continuous speech yields one segment with no silence boundary to finalize
-    against. Finalize all but the last KEEP_TAIL_SECONDS of words and trim the
-    buffer to that word boundary. Returns (finalized_text, trim_bytes).
+    against. Finalize all but the last KEEP_TAIL_SECONDS of speech and trim the
+    buffer to the start of the first kept word. Word timestamps give the real
+    boundary, so pauses and speaking rate cannot skew the split. Defers when
+    timings are unavailable or misaligned (e.g. after repetition collapse).
+    Returns (finalized_text, trim_bytes).
     """
     if not segments:
         return finalized_text, 0
 
     seg = segments[0]
     words = seg["text"].split()
-    seg_duration = seg["end"] - seg["start"]
-    if len(words) < 2 or seg_duration <= KEEP_TAIL_SECONDS:
+    word_spans = seg.get("words")
+    if len(words) < 2 or not word_spans or len(word_spans) != len(words):
         return finalized_text, 0
 
-    kept_words = int(len(words) * (KEEP_TAIL_SECONDS / seg_duration))
-    kept_words = max(kept_words, 1)
-    if kept_words >= len(words):
+    finalized_count = _count_finalizable_words(word_spans, seg["end"])
+    if finalized_count <= 0:
         return finalized_text, 0
 
-    finalized_words = words[: len(words) - kept_words]
-    finalized_text = _concat_transcriptions(finalized_text, " ".join(finalized_words))
-
-    finalized_fraction = len(finalized_words) / len(words)
-    trim_seconds = seg["start"] + seg_duration * finalized_fraction
+    trim_seconds = word_spans[finalized_count]["start"]
     trim_bytes = int(trim_seconds * BYTES_PER_SECOND)
     trim_bytes -= trim_bytes % BYTES_PER_SAMPLE
+    if trim_bytes <= 0:
+        return finalized_text, 0
+
+    finalized_text = _concat_transcriptions(
+        finalized_text, " ".join(words[:finalized_count])
+    )
     logging.info(
-        f"Finalized {len(finalized_words)}/{len(words)} words of single segment "
-        f"(kept {kept_words} words for context)"
+        f"Finalized {finalized_count}/{len(words)} words of single segment "
+        f"(kept {len(words) - finalized_count} words for context)"
     )
     return finalized_text, trim_bytes
+
+
+def _count_finalizable_words(word_spans, seg_end):
+    """Count leading words removable while keeping KEEP_TAIL_SECONDS of speech.
+
+    Words before the returned index are finalizable; the word at that index and
+    after stay in the buffer as context. Zero means the segment fits in the tail.
+    """
+    finalized_count = 0
+    for i, span in enumerate(word_spans):
+        if seg_end - span["start"] >= KEEP_TAIL_SECONDS:
+            finalized_count = i
+        else:
+            break
+    return finalized_count
 
 
 def _concat_transcriptions(finalized: str, new: str) -> str:
@@ -274,11 +293,15 @@ def _collapse_repetitions(text: str) -> str:
     return leading + " ".join(words)
 
 
-def _transcribe(model, audio_bytes: bytes) -> list:
+def _transcribe(model, audio_bytes: bytes, initial_prompt: str = "") -> list:
     """Transcribe raw PCM int16 bytes, returning segment dicts.
 
-    Each segment has 'text', 'start', and 'end' keys. Callers that only
-    need the full text can join segment texts.
+    ``initial_prompt`` primes the decoder with text finalized before the
+    trimmed buffer, so re-decoding a mid-sentence tail keeps its context
+    instead of inventing or dropping boundary words.
+
+    Each segment has 'text', 'start', 'end', and 'words' (per-word start/end
+    spans) keys. Callers that only need the full text can join segment texts.
     """
     audio = _pcm_to_float32(audio_bytes)
     segments, _ = model.transcribe(
@@ -291,12 +314,17 @@ def _transcribe(model, audio_bytes: bytes) -> list:
         hotwords=WHISPER_HOTWORDS,
         repetition_penalty=WHISPER_REPETITION_PENALTY,
         no_repeat_ngram_size=WHISPER_NO_REPEAT_NGRAM_SIZE,
+        word_timestamps=True,
+        initial_prompt=initial_prompt or None,
     )
     return [
         {
             "text": _collapse_repetitions(seg.text),
             "start": seg.start,
             "end": seg.end,
+            "words": [
+                {"start": word.start, "end": word.end} for word in (seg.words or [])
+            ],
         }
         for seg in segments
     ]

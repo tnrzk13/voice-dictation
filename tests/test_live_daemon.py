@@ -4,7 +4,7 @@ import json
 import time
 from unittest.mock import MagicMock, patch
 
-from dictate.config import BYTES_PER_SAMPLE, BYTES_PER_SECOND, KEEP_TAIL_SECONDS
+from dictate.config import BYTES_PER_SAMPLE, BYTES_PER_SECOND
 from dictate.live.daemon import (
     _collapse_repetitions,
     _concat_transcriptions,
@@ -51,6 +51,16 @@ def _make_segment(text=" Hello world.", start=0.0, end=1.0):
     seg.start = start
     seg.end = end
     return seg
+
+
+def _timed_segment(words, starts, end):
+    """Build a segment dict with per-word start/end spans."""
+    return {
+        "text": " ".join(words),
+        "start": float(starts[0]) if starts else 0.0,
+        "end": end,
+        "words": [{"start": float(s), "end": float(s) + 0.5} for s in starts],
+    }
 
 
 def _make_whisper_model(segments=None):
@@ -122,28 +132,49 @@ class TestFinalizeCompletedSegments:
         finalized, _ = _finalize_completed_segments(segments2, finalized)
         assert finalized == "we can do it"
 
-    def test_single_segment_keeps_tail_words(self):
-        """A long single segment finalizes all but a KEEP_TAIL_SECONDS tail."""
-        total_words = 10
-        duration = 10.0
-        words = " ".join(f"word{i}" for i in range(total_words))
-        segments = [{"text": words, "start": 0.0, "end": duration}]
+    def test_single_segment_keeps_tail_of_speech(self):
+        """A long single segment finalizes all but the last KEEP_TAIL_SECONDS of speech."""
+        words = [f"word{i}" for i in range(10)]
+        segments = [_timed_segment(words, starts=range(10), end=10.0)]
         finalized, bytes_trimmed = _finalize_completed_segments(segments, "")
-        kept_words = int(total_words * (KEEP_TAIL_SECONDS / duration))
-        finalized_count = total_words - kept_words
-        assert finalized == " ".join(f"word{i}" for i in range(finalized_count))
-        assert bytes_trimmed == finalized_count * BYTES_PER_SECOND
+        # Word starts 0..9s; keeping >=3s makes word at 7.0s the first kept.
+        assert finalized == " ".join(words[:7])
+        assert bytes_trimmed == 7 * BYTES_PER_SECOND
+
+    def test_single_segment_uses_word_timestamps_across_pause(self):
+        """A pause inflates duration, so the split must come from word timings."""
+        words = [f"word{i}" for i in range(8)]
+        starts = [0.0, 0.6, 1.2, 1.7, 6.0, 6.6, 7.1, 7.6]
+        segments = [_timed_segment(words, starts=starts, end=8.0)]
+        finalized, bytes_trimmed = _finalize_completed_segments(segments, "")
+        # Speech resumes at 6.0s, so keeping >=3s starts the tail at word 3 (1.7s).
+        assert finalized == "word0 word1 word2"
+        assert bytes_trimmed == int(1.7 * BYTES_PER_SECOND)
+
+    def test_single_segment_defers_when_word_timings_misaligned(self):
+        """Repetition collapse can desync text from timings - defer, don't guess."""
+        segments = [
+            {
+                "text": "one two three",
+                "start": 0.0,
+                "end": 10.0,
+                "words": [{"start": 0.0, "end": 0.5}],
+            }
+        ]
+        finalized, bytes_trimmed = _finalize_completed_segments(segments, "prior")
+        assert finalized == "prior"
+        assert bytes_trimmed == 0
 
     def test_single_segment_shorter_than_tail_keeps_all(self):
         """A segment shorter than KEEP_TAIL_SECONDS stays in the buffer."""
-        segments = [{"text": "hello world", "start": 0.0, "end": 2.0}]
+        segments = [_timed_segment(["hello", "world"], starts=[0.0, 1.0], end=2.0)]
         finalized, bytes_trimmed = _finalize_completed_segments(segments, "")
         assert finalized == ""
         assert bytes_trimmed == 0
 
     def test_single_segment_single_word_keeps_all(self):
         """A one-word segment cannot be split - finalize nothing."""
-        segments = [{"text": "hello", "start": 0.0, "end": 5.0}]
+        segments = [_timed_segment(["hello"], starts=[0.0], end=5.0)]
         finalized, bytes_trimmed = _finalize_completed_segments(segments, "")
         assert finalized == ""
         assert bytes_trimmed == 0
