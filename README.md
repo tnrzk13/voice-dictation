@@ -4,9 +4,7 @@ Linux voice dictation - speak into your mic, text appears at your cursor. Powere
 
 <!-- ![dictating into an editor](docs/demo.gif) -->
 
-- Runs fully local: faster-whisper decodes on your GPU and your audio never leaves the machine
-- Types straight into any X11 app at the cursor through `xdotool`
-- A resident daemon keeps the model loaded, so there is no per-use model load
+Everything runs on your machine: audio is decoded locally and the text is typed straight into the window you are in.
 
 ## Features
 
@@ -17,7 +15,7 @@ Linux voice dictation - speak into your mic, text appears at your cursor. Powere
 - **Automatic punctuation**: Whisper punctuates and capitalizes sentences; a full-context re-decode at the end of a session restores commas and closing periods
 - **Desktop notifications**: Visual feedback for model loading, download progress, and errors
 
-On an RTX 4060, committed fixtures measured a 208 to 211 ms median gate-to-partial latency, RTF of 0.69 to 0.71, 0 word errors on 24 words and about 1.2 GiB of VRAM over the desktop baseline; 11 human takes measured 2.3% word error rate with the number-formatting take excluded - method and limits: [docs/benchmark.md](docs/benchmark.md).
+Measured on an RTX 4060: a partial lands 208 to 211 ms after the 0.3 s audio gate, RTF is 0.69 to 0.71, and word error rate is 2.3% across 11 human takes. Method, fixtures, and limits: [docs/benchmark.md](docs/benchmark.md).
 
 ## System Requirements
 
