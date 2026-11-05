@@ -2,15 +2,22 @@
 
 Linux voice dictation - speak into your mic, text appears at your cursor. Powered by [faster-whisper](https://github.com/SYSTRAN/faster-whisper) with real-time streaming transcription.
 
+<!-- ![dictating into an editor](docs/demo.gif) -->
+
+- Runs fully local: faster-whisper decodes on your GPU and your audio never leaves the machine
+- Types straight into any X11 app at the cursor through `xdotool`
+- A resident daemon keeps the model loaded, so there is no per-use model load
+
 ## Features
 
-- **Real-time streaming**: Words appear and self-correct as you speak
-- **Automatic punctuation**: Whisper punctuates and capitalizes sentences; a full-context re-decode at the end of a session restores commas and closing periods
+- **Streaming text that self-corrects**: Words appear as you speak and revise themselves as more audio arrives
 - **Spoken formatting commands**: Say "slash", "comma", "open parenthesis", etc. to insert symbols
-- **GPU-accelerated**: Runs on NVIDIA GPUs by default, freeing your CPU for other tasks
-- **Daemon architecture**: Whisper model stays loaded in memory for fast transcription
-- **Desktop integration**: Types text directly at your cursor via `xdotool`
-- **Desktop notifications**: Visual feedback for daemon loading, download progress, and errors
+- **Types at your cursor**: Text lands in whichever X11 window has focus
+- **GPU-accelerated with a resident model**: The daemon keeps the model in GPU memory, leaving your CPU for other apps
+- **Automatic punctuation**: Whisper punctuates and capitalizes sentences; a full-context re-decode at the end of a session restores commas and closing periods
+- **Desktop notifications**: Visual feedback for model loading, download progress, and errors
+
+On an RTX 4060, committed fixtures measured a 208 to 211 ms median gate-to-partial latency, RTF of 0.69 to 0.71, 0 word errors on 24 words and about 1.2 GiB of VRAM over the desktop baseline; 11 human takes measured 2.3% word error rate with the number-formatting take excluded - method and limits: [docs/benchmark.md](docs/benchmark.md).
 
 ## System Requirements
 
@@ -201,7 +208,9 @@ voice-dictation/
 │   ├── record_local_fixtures.py  # CLI prompt-based recorder
 │   ├── capture_chunks.py    # Generate golden chunk sequences from audio
 │   ├── generate_audio_fixtures.py  # Generate synthetic baseline audio with gTTS
-│   └── fixture_definitions.py      # Shared edge-case scripts and directions
+│   ├── fixture_definitions.py      # Shared edge-case scripts and directions
+│   └── benchmark.py                # Replay fixtures, measure latency, WER, and VRAM
+├── docs/
 ├── scripts/
 ├── pyproject.toml
 └── README.md
@@ -248,7 +257,7 @@ python tools/generate_audio_fixtures.py
 python tools/capture_chunks.py tests/audio_fixtures/*.wav
 ```
 
-Your local recordings in `tests/audio_fixtures_local/` are never committed to GitHub.
+Your local recordings in `tests/audio_fixtures_local/` are never committed to GitHub, though the local benchmark run publishes aggregate metrics and the transcripts of those takes in `tools/benchmark-results-local.json`.
 
 ### Benchmark
 
