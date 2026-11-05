@@ -55,10 +55,7 @@ FIXTURES: Dict[str, Dict[str, str]] = {
             "The Claude Code workflow uses Jira tickets, git commits, "
             "GitHub pull requests, sudo access, tmux sessions, and YAML configs."
         ),
-        "directions": (
-            "Speak naturally and include each word from hotwords.txt: "
-            "Claude, Code, Jira, git, sudo, tmux, YAML, GitHub."
-        ),
+        "directions": "Speak naturally and include each term from your hotwords.txt.",
         "focus": "Tests that Whisper hotword bias is applied to your actual terms.",
     },
     "numbers_and_symbols": {
