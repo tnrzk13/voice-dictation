@@ -1,0 +1,1100 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-11-05T19:52:12+00:00",
+  "environment": {
+    "gpu": {
+      "name": "NVIDIA GeForce RTX 4060",
+      "driver_version": "535.261.03",
+      "memory_total_mib": 8188,
+      "cuda_version": "12.2"
+    },
+    "python_version": "3.11.9",
+    "platform": "Linux-6.1.0-54-amd64-x86_64-with-glibc2.36",
+    "packages": {
+      "faster_whisper": "1.2.1",
+      "ctranslate2": "4.6.2",
+      "numpy": "1.26.4"
+    },
+    "ctranslate2_cuda_device_count": 1,
+    "device": "cuda",
+    "compute_type": "int8_float16",
+    "model": {
+      "name": "large-v3-turbo",
+      "repo_id": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+      "cached": true,
+      "files_bytes": 1621665983,
+      "model_bin_bytes": 1617884929
+    },
+    "nvidia_smi_available": true
+  },
+  "config": {
+    "sample_rate": 16000,
+    "bytes_per_sample": 2,
+    "transcribe_interval_seconds": 2,
+    "transcribe_min_audio_seconds": 0.3,
+    "keep_tail_seconds": 3,
+    "max_session_seconds": 60,
+    "beam_size": 1,
+    "temperature": 0.0,
+    "vad_filter": true,
+    "vad_min_silence_ms": 500,
+    "no_repeat_ngram_size": 3,
+    "repetition_penalty": 1.2,
+    "hotwords_present": true,
+    "hotwords_count": 10,
+    "model": "large-v3-turbo",
+    "device": "cuda",
+    "compute_type": "int8_float16",
+    "feed_frame_seconds": 0.064,
+    "vram_sample_interval_seconds": 0.1,
+    "pacing": "real_time"
+  },
+  "model_load_seconds": 2.237260043999413,
+  "baseline_vram_mib": 1510,
+  "baseline_vram_samples": 5,
+  "vram_sampling_error": null,
+  "fixtures": [
+    {
+      "name": "formatting_commands",
+      "source": "committed",
+      "wav_path": "tests/audio_fixtures/formatting_commands.wav",
+      "wav_bytes": 96812,
+      "audio_seconds": 3.024,
+      "golden_message_count": 4,
+      "reference_present": true,
+      "script_present": true
+    },
+    {
+      "name": "hello_world",
+      "source": "committed",
+      "wav_path": "tests/audio_fixtures/hello_world.wav",
+      "wav_bytes": 85292,
+      "audio_seconds": 2.664,
+      "golden_message_count": 4,
+      "reference_present": true,
+      "script_present": true
+    },
+    {
+      "name": "pause_and_continue",
+      "source": "committed",
+      "wav_path": "tests/audio_fixtures/pause_and_continue.wav",
+      "wav_bytes": 158762,
+      "audio_seconds": 4.9599375,
+      "golden_message_count": 5,
+      "reference_present": true,
+      "script_present": true
+    }
+  ],
+  "runs": [
+    {
+      "run": 1,
+      "started_at_offset_seconds": 0.30007595400093123,
+      "wall_seconds": 11.916947482997784,
+      "fixtures": [
+        {
+          "name": "formatting_commands",
+          "source": "committed",
+          "wav_path": "tests/audio_fixtures/formatting_commands.wav",
+          "wav_bytes": 96812,
+          "audio_seconds": 3.024,
+          "golden_message_count": 4,
+          "reference_present": true,
+          "final_source": "final",
+          "final_text": "Tony Slash Pictures from the Beach Period",
+          "reference_text": "Tony slash pictures from the beach period.",
+          "script_text": "Tony slash pictures from the beach period.",
+          "script_wer_included": true,
+          "session_seconds": 3.308389226003783,
+          "message_counts": {
+            "partial": 9,
+            "final": 1
+          },
+          "wer_reference": {
+            "reference_words": 7,
+            "hypothesis_words": 7,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "wer": 0.0
+          },
+          "wer_script": {
+            "reference_words": 7,
+            "hypothesis_words": 7,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "wer": 0.0
+          },
+          "decode": {
+            "decode_calls": 10,
+            "streaming_decode_calls": 9,
+            "final_decode_calls": 1,
+            "decode_wall_seconds": 2.314817204984138,
+            "streaming_decode_wall_seconds": 2.1082616619823966,
+            "final_decode_wall_seconds": 0.20655554300174117,
+            "decoded_audio_seconds": 17.936,
+            "decode_audio_amplification": 5.931216931216931,
+            "rtf_total": 0.765481879955072,
+            "rtf_per_decode_p50": 0.10666128276082623,
+            "rtf_per_decode_p95": 1.3457707000270602,
+            "rtf_per_decode_max": 1.3457707000270602,
+            "rtf_session": 0.6996810371614633,
+            "per_decode_rtf": [
+              1.3457707000270602,
+              0.2873625212900648,
+              0.19573068556155704,
+              0.15390215847738933,
+              0.12532861476826768,
+              0.10666128276082623,
+              0.09316142577770532,
+              0.08072929268764266,
+              0.07520336650842459,
+              0.06830540443179271
+            ],
+            "per_decode_seconds": [
+              0.4306466240086593,
+              0.20230321498820558,
+              0.2004282220150344,
+              0.2068445009936113,
+              0.20854681497439742,
+              0.21161598499747925,
+              0.21464392499183305,
+              0.21183366401237436,
+              0.221398711000802,
+              0.20655554300174117
+            ],
+            "per_decode_audio_seconds": [
+              0.32,
+              0.704,
+              1.024,
+              1.344,
+              1.664,
+              1.984,
+              2.304,
+              2.624,
+              2.944,
+              3.024
+            ]
+          },
+          "latency": {
+            "gate_triggers": 9,
+            "latency_samples": 9,
+            "p50_seconds": 0.21201575399027206,
+            "p95_seconds": 0.4308326030150056,
+            "max_seconds": 0.4308326030150056,
+            "min_seconds": 0.2005290620145388,
+            "floor_wakes": 0,
+            "time_to_first_partial_seconds": 0.6869851670053322,
+            "samples_seconds": [
+              0.4308326030150056,
+              0.3132685699965805,
+              0.2005290620145388,
+              0.2069726910267491,
+              0.2086713540193159,
+              0.21174261398846284,
+              0.2147828640008811,
+              0.21201575399027206,
+              0.2215188410191331
+            ]
+          },
+          "corrections": {
+            "partial_messages": 9,
+            "partial_revisions": 8,
+            "backspaces_total": 48,
+            "backspace_calls": 4,
+            "typed_characters": 78,
+            "final_backspaces": 0,
+            "final_differs_from_last_partial": false,
+            "words_in_final_transcript": 7,
+            "backspaces_per_100_words": 685.7142857142857,
+            "finalized_prefix_regressions": 0,
+            "finalized_prefix_regression_examples": [],
+            "committed_prefix_regressions": 0,
+            "displayed_text": "Tony/Pictures from the Beach.",
+            "committed_text": "Tony/Pictures from the Beach."
+          }
+        },
+        {
+          "name": "hello_world",
+          "source": "committed",
+          "wav_path": "tests/audio_fixtures/hello_world.wav",
+          "wav_bytes": 85292,
+          "audio_seconds": 2.664,
+          "golden_message_count": 4,
+          "reference_present": true,
+          "final_source": "final",
+          "final_text": "Hello world, this is a test.",
+          "reference_text": "Hello world, this is a test.",
+          "script_text": "Hello world, this is a test.",
+          "script_wer_included": true,
+          "session_seconds": 2.921846519020619,
+          "message_counts": {
+            "partial": 7,
+            "final": 1
+          },
+          "wer_reference": {
+            "reference_words": 6,
+            "hypothesis_words": 6,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "wer": 0.0
+          },
+          "wer_script": {
+            "reference_words": 6,
+            "hypothesis_words": 6,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "wer": 0.0
+          },
+          "decode": {
+            "decode_calls": 9,
+            "streaming_decode_calls": 8,
+            "final_decode_calls": 1,
+            "decode_wall_seconds": 1.8579542450315785,
+            "streaming_decode_wall_seconds": 1.6517704110301565,
+            "final_decode_wall_seconds": 0.20618383400142193,
+            "decoded_audio_seconds": 14.184000000000001,
+            "decode_audio_amplification": 5.324324324324325,
+            "rtf_total": 0.6974302721590009,
+            "rtf_per_decode_p50": 0.12845741001001443,
+            "rtf_per_decode_p95": 0.6234596094145672,
+            "rtf_per_decode_max": 0.6234596094145672,
+            "rtf_session": 0.6358835869497864,
+            "per_decode_rtf": [
+              0.6234596094145672,
+              0.31668813439864607,
+              0.20832102603283906,
+              0.15826534843199624,
+              0.12845741001001443,
+              0.10984663437435908,
+              0.09440564999749766,
+              0.08558947226902092,
+              0.07739633408461784
+            ],
+            "per_decode_seconds": [
+              0.19950707501266152,
+              0.20268040601513349,
+              0.19998818499152549,
+              0.2025796459929552,
+              0.20553185601602308,
+              0.21090553799876943,
+              0.2114686559943948,
+              0.21910904900869355,
+              0.20618383400142193
+            ],
+            "per_decode_audio_seconds": [
+              0.32,
+              0.64,
+              0.96,
+              1.28,
+              1.6,
+              1.92,
+              2.24,
+              2.56,
+              2.664
+            ]
+          },
+          "latency": {
+            "gate_triggers": 7,
+            "latency_samples": 7,
+            "p50_seconds": 0.20563045601011254,
+            "p95_seconds": 0.21927830899949186,
+            "max_seconds": 0.21927830899949186,
+            "min_seconds": 0.199648484995123,
+            "floor_wakes": 0,
+            "time_to_first_partial_seconds": 0.4557606790040154,
+            "samples_seconds": [
+              0.199648484995123,
+              0.20278203597990796,
+              0.2000784650153946,
+              0.20563045601011254,
+              0.21101057800115086,
+              0.21158169498085044,
+              0.21927830899949186
+            ]
+          },
+          "corrections": {
+            "partial_messages": 7,
+            "partial_revisions": 6,
+            "backspaces_total": 44,
+            "backspace_calls": 4,
+            "typed_characters": 73,
+            "final_backspaces": 22,
+            "final_differs_from_last_partial": false,
+            "words_in_final_transcript": 6,
+            "backspaces_per_100_words": 733.3333333333333,
+            "finalized_prefix_regressions": 0,
+            "finalized_prefix_regression_examples": [],
+            "committed_prefix_regressions": 0,
+            "displayed_text": "Hello world, this is a test.",
+            "committed_text": "Hello world, this is a test."
+          }
+        },
+        {
+          "name": "pause_and_continue",
+          "source": "committed",
+          "wav_path": "tests/audio_fixtures/pause_and_continue.wav",
+          "wav_bytes": 158762,
+          "audio_seconds": 4.9599375,
+          "golden_message_count": 5,
+          "reference_present": true,
+          "final_source": "final",
+          "final_text": "This is the first part. And this is the second part.",
+          "reference_text": "This is the first part. And this Is The Second Part",
+          "script_text": "This is the first part. And this is the second part.",
+          "script_wer_included": true,
+          "session_seconds": 5.172551783005474,
+          "message_counts": {
+            "partial": 6,
+            "final": 1
+          },
+          "wer_reference": {
+            "reference_words": 11,
+            "hypothesis_words": 11,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "wer": 0.0
+          },
+          "wer_script": {
+            "reference_words": 11,
+            "hypothesis_words": 11,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "wer": 0.0
+          },
+          "decode": {
+            "decode_calls": 16,
+            "streaming_decode_calls": 15,
+            "final_decode_calls": 1,
+            "decode_wall_seconds": 3.389806040970143,
+            "streaming_decode_wall_seconds": 3.1674885009706486,
+            "final_decode_wall_seconds": 0.22231753999949433,
+            "decoded_audio_seconds": 33.599937499999996,
+            "decode_audio_amplification": 6.774266308799254,
+            "rtf_total": 0.683437249152866,
+            "rtf_per_decode_p50": 0.10382377745996814,
+            "rtf_per_decode_p95": 0.6663763437245507,
+            "rtf_per_decode_max": 0.6663763437245507,
+            "rtf_session": 0.655345017928563,
+            "per_decode_rtf": [
+              0.6663763437245507,
+              0.31755305312799464,
+              0.2141800895818354,
+              0.16273512967472925,
+              0.1295547006156994,
+              0.10859372708485657,
+              0.09586527009690013,
+              0.08166978672079495,
+              0.07338023853865,
+              0.06664166593509435,
+              0.06384708863565307,
+              0.15046365642254908,
+              0.12325913080848147,
+              0.10382377745996814,
+              0.09055696144183088,
+              0.04482264947884814
+            ],
+            "per_decode_seconds": [
+              0.21324042999185622,
+              0.20323395400191657,
+              0.20561288599856198,
+              0.20830096598365344,
+              0.20728752098511904,
+              0.2084999560029246,
+              0.21473820501705632,
+              0.20907465400523506,
+              0.21133508699131198,
+              0.21325333099230193,
+              0.2247417519974988,
+              0.21064911899156868,
+              0.21200570499058813,
+              0.211800506018335,
+              0.21371442900272086,
+              0.22231753999949433
+            ],
+            "per_decode_audio_seconds": [
+              0.32,
+              0.64,
+              0.96,
+              1.28,
+              1.6,
+              1.92,
+              2.24,
+              2.56,
+              2.88,
+              3.2,
+              3.52,
+              1.4,
+              1.72,
+              2.04,
+              2.36,
+              4.9599375
+            ]
+          },
+          "latency": {
+            "gate_triggers": 6,
+            "latency_samples": 6,
+            "p50_seconds": 0.2084293559892103,
+            "p95_seconds": 0.22488675100612454,
+            "max_seconds": 0.22488675100612454,
+            "min_seconds": 0.20335690397769213,
+            "floor_wakes": 0,
+            "time_to_first_partial_seconds": 0.46947278498555534,
+            "samples_seconds": [
+              0.21335355000337586,
+              0.20335690397769213,
+              0.20571002599899657,
+              0.2084293559892103,
+              0.22488675100612454,
+              0.21077882900135592
+            ]
+          },
+          "corrections": {
+            "partial_messages": 6,
+            "partial_revisions": 5,
+            "backspaces_total": 43,
+            "backspace_calls": 2,
+            "typed_characters": 96,
+            "final_backspaces": 0,
+            "final_differs_from_last_partial": false,
+            "words_in_final_transcript": 11,
+            "backspaces_per_100_words": 390.90909090909093,
+            "finalized_prefix_regressions": 0,
+            "finalized_prefix_regression_examples": [],
+            "committed_prefix_regressions": 0,
+            "displayed_text": "This is the first part. And this is the second part.",
+            "committed_text": "This is the first part. And this is the second part."
+          }
+        }
+      ],
+      "aggregate": {
+        "fixtures": 3,
+        "audio_seconds": 10.647937500000001,
+        "session_seconds": 11.402787528029876,
+        "decode": {
+          "decode_wall_seconds": 7.562577490985859,
+          "decoded_audio_seconds": 65.7199375,
+          "decode_audio_amplification": 6.172081447698204,
+          "rtf_total": 0.7102387190933322,
+          "rtf_session": 0.6632218194363294,
+          "rtf_per_decode_p50": 0.10984663437435908,
+          "rtf_per_decode_p95": 0.6663763437245507,
+          "rtf_per_decode_max": 1.3457707000270602
+        },
+        "wer_reference": {
+          "fixtures": 3,
+          "reference_words": 24,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "errors": 0,
+          "wer": 0.0
+        },
+        "wer_script": {
+          "fixtures": 3,
+          "reference_words": 24,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "errors": 0,
+          "wer": 0.0
+        },
+        "latency": {
+          "latency_samples": 22,
+          "p50_seconds": 0.21077882900135592,
+          "p95_seconds": 0.3132685699965805,
+          "max_seconds": 0.4308326030150056,
+          "min_seconds": 0.199648484995123,
+          "time_to_first_partial_seconds": 0.46947278498555534
+        },
+        "corrections": {
+          "partial_messages": 22,
+          "partial_revisions": 19,
+          "backspaces_total": 135,
+          "words_in_final_transcript": 24,
+          "backspaces_per_100_words": 562.5,
+          "finalized_prefix_regressions": 0,
+          "committed_prefix_regressions": 0,
+          "final_backspaces": 22
+        }
+      },
+      "aggregate_by_source": {
+        "committed": {
+          "fixtures": 3,
+          "audio_seconds": 10.647937500000001,
+          "session_seconds": 11.402787528029876,
+          "decode": {
+            "decode_wall_seconds": 7.562577490985859,
+            "decoded_audio_seconds": 65.7199375,
+            "decode_audio_amplification": 6.172081447698204,
+            "rtf_total": 0.7102387190933322,
+            "rtf_session": 0.6632218194363294,
+            "rtf_per_decode_p50": 0.10984663437435908,
+            "rtf_per_decode_p95": 0.6663763437245507,
+            "rtf_per_decode_max": 1.3457707000270602
+          },
+          "wer_reference": {
+            "fixtures": 3,
+            "reference_words": 24,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "wer": 0.0
+          },
+          "wer_script": {
+            "fixtures": 3,
+            "reference_words": 24,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "wer": 0.0
+          },
+          "latency": {
+            "latency_samples": 22,
+            "p50_seconds": 0.21077882900135592,
+            "p95_seconds": 0.3132685699965805,
+            "max_seconds": 0.4308326030150056,
+            "min_seconds": 0.199648484995123,
+            "time_to_first_partial_seconds": 0.46947278498555534
+          },
+          "corrections": {
+            "partial_messages": 22,
+            "partial_revisions": 19,
+            "backspaces_total": 135,
+            "words_in_final_transcript": 24,
+            "backspaces_per_100_words": 562.5,
+            "finalized_prefix_regressions": 0,
+            "committed_prefix_regressions": 0,
+            "final_backspaces": 22
+          }
+        }
+      },
+      "vram": {
+        "baseline_mib": 1510,
+        "peak_during_decode_mib": 2712,
+        "median_during_decode_mib": 2712,
+        "peak_in_window_mib": 2712,
+        "delta_over_baseline_mib": 1202,
+        "samples_in_window": 105,
+        "samples_during_decode": 66
+      }
+    },
+    {
+      "run": 2,
+      "started_at_offset_seconds": 12.217103026981931,
+      "wall_seconds": 11.907829300995218,
+      "fixtures": [
+        {
+          "name": "formatting_commands",
+          "source": "committed",
+          "wav_path": "tests/audio_fixtures/formatting_commands.wav",
+          "wav_bytes": 96812,
+          "audio_seconds": 3.024,
+          "golden_message_count": 4,
+          "reference_present": true,
+          "final_source": "final",
+          "final_text": "Tony Slash Pictures from the Beach Period",
+          "reference_text": "Tony slash pictures from the beach period.",
+          "script_text": "Tony slash pictures from the beach period.",
+          "script_wer_included": true,
+          "session_seconds": 3.2507741689914837,
+          "message_counts": {
+            "partial": 9,
+            "final": 1
+          },
+          "wer_reference": {
+            "reference_words": 7,
+            "hypothesis_words": 7,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "wer": 0.0
+          },
+          "wer_script": {
+            "reference_words": 7,
+            "hypothesis_words": 7,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "wer": 0.0
+          },
+          "decode": {
+            "decode_calls": 10,
+            "streaming_decode_calls": 9,
+            "final_decode_calls": 1,
+            "decode_wall_seconds": 2.0900529619830195,
+            "streaming_decode_wall_seconds": 1.8737028909963556,
+            "final_decode_wall_seconds": 0.21635007098666392,
+            "decoded_audio_seconds": 17.424000000000003,
+            "decode_audio_amplification": 5.761904761904763,
+            "rtf_total": 0.6911550800208398,
+            "rtf_per_decode_p50": 0.10934380781388124,
+            "rtf_per_decode_p95": 0.6249652344195056,
+            "rtf_per_decode_max": 0.6249652344195056,
+            "rtf_session": 0.6429400669906993,
+            "per_decode_rtf": [
+              0.6249652344195056,
+              0.31552206091873813,
+              0.21108237187945633,
+              0.1600668351557033,
+              0.13045281624727068,
+              0.10934380781388124,
+              0.0950725187457075,
+              0.0838494793015343,
+              0.07568525867706437,
+              0.07154433564373806
+            ],
+            "per_decode_seconds": [
+              0.19998887501424178,
+              0.2019341189879924,
+              0.20263907700427808,
+              0.20488554899930023,
+              0.20872450599563308,
+              0.20994011100265197,
+              0.21296244199038483,
+              0.2146546670119278,
+              0.21797354498994537,
+              0.21635007098666392
+            ],
+            "per_decode_audio_seconds": [
+              0.32,
+              0.64,
+              0.96,
+              1.28,
+              1.6,
+              1.92,
+              2.24,
+              2.56,
+              2.88,
+              3.024
+            ]
+          },
+          "latency": {
+            "gate_triggers": 9,
+            "latency_samples": 9,
+            "p50_seconds": 0.2088384859962389,
+            "p95_seconds": 0.21813218499301001,
+            "max_seconds": 0.21813218499301001,
+            "min_seconds": 0.2000838539970573,
+            "floor_wakes": 0,
+            "time_to_first_partial_seconds": 0.4561863809940405,
+            "samples_seconds": [
+              0.2000838539970573,
+              0.20203447798849083,
+              0.20277910502045415,
+              0.20498680899618194,
+              0.2088384859962389,
+              0.21005146100651473,
+              0.21307468198938295,
+              0.21476440600235946,
+              0.21813218499301001
+            ]
+          },
+          "corrections": {
+            "partial_messages": 9,
+            "partial_revisions": 8,
+            "backspaces_total": 52,
+            "backspace_calls": 5,
+            "typed_characters": 82,
+            "final_backspaces": 0,
+            "final_differs_from_last_partial": false,
+            "words_in_final_transcript": 7,
+            "backspaces_per_100_words": 742.8571428571429,
+            "finalized_prefix_regressions": 0,
+            "finalized_prefix_regression_examples": [],
+            "committed_prefix_regressions": 0,
+            "displayed_text": "Tony/Pictures from the Beach.",
+            "committed_text": "Tony/Pictures from the Beach."
+          }
+        },
+        {
+          "name": "hello_world",
+          "source": "committed",
+          "wav_path": "tests/audio_fixtures/hello_world.wav",
+          "wav_bytes": 85292,
+          "audio_seconds": 2.664,
+          "golden_message_count": 4,
+          "reference_present": true,
+          "final_source": "final",
+          "final_text": "Hello world, this is a test.",
+          "reference_text": "Hello world, this is a test.",
+          "script_text": "Hello world, this is a test.",
+          "script_wer_included": true,
+          "session_seconds": 2.9221516730031,
+          "message_counts": {
+            "partial": 7,
+            "final": 1
+          },
+          "wer_reference": {
+            "reference_words": 6,
+            "hypothesis_words": 6,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "wer": 0.0
+          },
+          "wer_script": {
+            "reference_words": 6,
+            "hypothesis_words": 6,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "wer": 0.0
+          },
+          "decode": {
+            "decode_calls": 9,
+            "streaming_decode_calls": 8,
+            "final_decode_calls": 1,
+            "decode_wall_seconds": 1.8602120190334972,
+            "streaming_decode_wall_seconds": 1.6475524860434234,
+            "final_decode_wall_seconds": 0.21265953299007379,
+            "decoded_audio_seconds": 14.184000000000001,
+            "decode_audio_amplification": 5.324324324324325,
+            "rtf_total": 0.6982777849224839,
+            "rtf_per_decode_p50": 0.12958383187651634,
+            "rtf_per_decode_p95": 0.6211461906787008,
+            "rtf_per_decode_max": 0.6211461906787008,
+            "rtf_session": 0.6365898239367412,
+            "per_decode_rtf": [
+              0.6211461906787008,
+              0.3161708546940645,
+              0.20851871458944515,
+              0.15784538984462415,
+              0.12958383187651634,
+              0.10991027030892535,
+              0.09496567946760998,
+              0.08325442227032909,
+              0.07982715202330097
+            ],
+            "per_decode_seconds": [
+              0.19876678101718426,
+              0.20234934700420126,
+              0.20017796600586735,
+              0.2020420990011189,
+              0.20733413100242615,
+              0.21102771899313666,
+              0.21272312200744636,
+              0.21313132101204246,
+              0.21265953299007379
+            ],
+            "per_decode_audio_seconds": [
+              0.32,
+              0.64,
+              0.96,
+              1.28,
+              1.6,
+              1.92,
+              2.24,
+              2.56,
+              2.664
+            ]
+          },
+          "latency": {
+            "gate_triggers": 7,
+            "latency_samples": 7,
+            "p50_seconds": 0.20744814100908116,
+            "p95_seconds": 0.2132540509919636,
+            "max_seconds": 0.2132540509919636,
+            "min_seconds": 0.19886592999682762,
+            "floor_wakes": 0,
+            "time_to_first_partial_seconds": 0.4549630170222372,
+            "samples_seconds": [
+              0.19886592999682762,
+              0.20244205699418671,
+              0.20033777601202019,
+              0.20744814100908116,
+              0.21115673799067736,
+              0.21285576198715717,
+              0.2132540509919636
+            ]
+          },
+          "corrections": {
+            "partial_messages": 7,
+            "partial_revisions": 6,
+            "backspaces_total": 44,
+            "backspace_calls": 4,
+            "typed_characters": 73,
+            "final_backspaces": 22,
+            "final_differs_from_last_partial": false,
+            "words_in_final_transcript": 6,
+            "backspaces_per_100_words": 733.3333333333333,
+            "finalized_prefix_regressions": 0,
+            "finalized_prefix_regression_examples": [],
+            "committed_prefix_regressions": 0,
+            "displayed_text": "Hello world, this is a test.",
+            "committed_text": "Hello world, this is a test."
+          }
+        },
+        {
+          "name": "pause_and_continue",
+          "source": "committed",
+          "wav_path": "tests/audio_fixtures/pause_and_continue.wav",
+          "wav_bytes": 158762,
+          "audio_seconds": 4.9599375,
+          "golden_message_count": 5,
+          "reference_present": true,
+          "final_source": "final",
+          "final_text": "This is the first part. And this is the second part.",
+          "reference_text": "This is the first part. And this Is The Second Part",
+          "script_text": "This is the first part. And this is the second part.",
+          "script_wer_included": true,
+          "session_seconds": 5.171169208013453,
+          "message_counts": {
+            "partial": 6,
+            "final": 1
+          },
+          "wer_reference": {
+            "reference_words": 11,
+            "hypothesis_words": 11,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "wer": 0.0
+          },
+          "wer_script": {
+            "reference_words": 11,
+            "hypothesis_words": 11,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "wer": 0.0
+          },
+          "decode": {
+            "decode_calls": 16,
+            "streaming_decode_calls": 15,
+            "final_decode_calls": 1,
+            "decode_wall_seconds": 3.3842194289027248,
+            "streaming_decode_wall_seconds": 3.162646183918696,
+            "final_decode_wall_seconds": 0.22157324498402886,
+            "decoded_audio_seconds": 33.599937499999996,
+            "decode_audio_amplification": 6.774266308799254,
+            "rtf_total": 0.6823109018818735,
+            "rtf_per_decode_p50": 0.10395633627708509,
+            "rtf_per_decode_p95": 0.6691650250104431,
+            "rtf_per_decode_max": 0.6691650250104431,
+            "rtf_session": 0.6544398941071976,
+            "per_decode_rtf": [
+              0.6691650250104431,
+              0.3148997999687708,
+              0.21601996040772065,
+              0.16279996718822076,
+              0.13165446936909575,
+              0.10848683332369546,
+              0.09396774642352412,
+              0.08231136367840008,
+              0.07361082465043486,
+              0.065770665933087,
+              0.06320025908776601,
+              0.15017790071267104,
+              0.12243175698067928,
+              0.10395633627708509,
+              0.09035374702869962,
+              0.044672588109029375
+            ],
+            "per_decode_seconds": [
+              0.21413280800334178,
+              0.20153587198001333,
+              0.20737916199141182,
+              0.20838395800092258,
+              0.2106471509905532,
+              0.2082947199814953,
+              0.21048775198869407,
+              0.21071709101670422,
+              0.21199917499325238,
+              0.2104661309858784,
+              0.22246491198893636,
+              0.21024906099773943,
+              0.21058262200676836,
+              0.21207092600525357,
+              0.2132348429877311,
+              0.22157324498402886
+            ],
+            "per_decode_audio_seconds": [
+              0.32,
+              0.64,
+              0.96,
+              1.28,
+              1.6,
+              1.92,
+              2.24,
+              2.56,
+              2.88,
+              3.2,
+              3.52,
+              1.4,
+              1.72,
+              2.04,
+              2.36,
+              4.9599375
+            ]
+          },
+          "latency": {
+            "gate_triggers": 6,
+            "latency_samples": 6,
+            "p50_seconds": 0.20848937798291445,
+            "p95_seconds": 0.2225844619970303,
+            "max_seconds": 0.2225844619970303,
+            "min_seconds": 0.2016375820094254,
+            "floor_wakes": 0,
+            "time_to_first_partial_seconds": 0.470367364003323,
+            "samples_seconds": [
+              0.21423204799066298,
+              0.2016375820094254,
+              0.2074766909936443,
+              0.20848937798291445,
+              0.2225844619970303,
+              0.21036582099623047
+            ]
+          },
+          "corrections": {
+            "partial_messages": 6,
+            "partial_revisions": 5,
+            "backspaces_total": 43,
+            "backspace_calls": 2,
+            "typed_characters": 96,
+            "final_backspaces": 0,
+            "final_differs_from_last_partial": false,
+            "words_in_final_transcript": 11,
+            "backspaces_per_100_words": 390.90909090909093,
+            "finalized_prefix_regressions": 0,
+            "finalized_prefix_regression_examples": [],
+            "committed_prefix_regressions": 0,
+            "displayed_text": "This is the first part. And this is the second part.",
+            "committed_text": "This is the first part. And this is the second part."
+          }
+        }
+      ],
+      "aggregate": {
+        "fixtures": 3,
+        "audio_seconds": 10.647937500000001,
+        "session_seconds": 11.344095050008036,
+        "decode": {
+          "decode_wall_seconds": 7.334484409919241,
+          "decoded_audio_seconds": 65.2079375,
+          "decode_audio_amplification": 6.123997018201881,
+          "rtf_total": 0.6888173798840612,
+          "rtf_session": 0.6465464523689834,
+          "rtf_per_decode_p50": 0.10991027030892535,
+          "rtf_per_decode_p95": 0.6249652344195056,
+          "rtf_per_decode_max": 0.6691650250104431
+        },
+        "wer_reference": {
+          "fixtures": 3,
+          "reference_words": 24,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "errors": 0,
+          "wer": 0.0
+        },
+        "wer_script": {
+          "fixtures": 3,
+          "reference_words": 24,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "errors": 0,
+          "wer": 0.0
+        },
+        "latency": {
+          "latency_samples": 22,
+          "p50_seconds": 0.20848937798291445,
+          "p95_seconds": 0.21813218499301001,
+          "max_seconds": 0.2225844619970303,
+          "min_seconds": 0.19886592999682762,
+          "time_to_first_partial_seconds": 0.4561863809940405
+        },
+        "corrections": {
+          "partial_messages": 22,
+          "partial_revisions": 19,
+          "backspaces_total": 139,
+          "words_in_final_transcript": 24,
+          "backspaces_per_100_words": 579.1666666666667,
+          "finalized_prefix_regressions": 0,
+          "committed_prefix_regressions": 0,
+          "final_backspaces": 22
+        }
+      },
+      "aggregate_by_source": {
+        "committed": {
+          "fixtures": 3,
+          "audio_seconds": 10.647937500000001,
+          "session_seconds": 11.344095050008036,
+          "decode": {
+            "decode_wall_seconds": 7.334484409919241,
+            "decoded_audio_seconds": 65.2079375,
+            "decode_audio_amplification": 6.123997018201881,
+            "rtf_total": 0.6888173798840612,
+            "rtf_session": 0.6465464523689834,
+            "rtf_per_decode_p50": 0.10991027030892535,
+            "rtf_per_decode_p95": 0.6249652344195056,
+            "rtf_per_decode_max": 0.6691650250104431
+          },
+          "wer_reference": {
+            "fixtures": 3,
+            "reference_words": 24,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "wer": 0.0
+          },
+          "wer_script": {
+            "fixtures": 3,
+            "reference_words": 24,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "wer": 0.0
+          },
+          "latency": {
+            "latency_samples": 22,
+            "p50_seconds": 0.20848937798291445,
+            "p95_seconds": 0.21813218499301001,
+            "max_seconds": 0.2225844619970303,
+            "min_seconds": 0.19886592999682762,
+            "time_to_first_partial_seconds": 0.4561863809940405
+          },
+          "corrections": {
+            "partial_messages": 22,
+            "partial_revisions": 19,
+            "backspaces_total": 139,
+            "words_in_final_transcript": 24,
+            "backspaces_per_100_words": 579.1666666666667,
+            "finalized_prefix_regressions": 0,
+            "committed_prefix_regressions": 0,
+            "final_backspaces": 22
+          }
+        }
+      },
+      "vram": {
+        "baseline_mib": 1510,
+        "peak_during_decode_mib": 2712,
+        "median_during_decode_mib": 2712,
+        "peak_in_window_mib": 2712,
+        "delta_over_baseline_mib": 1202,
+        "samples_in_window": 106,
+        "samples_during_decode": 65
+      }
+    }
+  ]
+}

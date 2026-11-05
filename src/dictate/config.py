@@ -34,11 +34,12 @@ KEEP_TAIL_SECONDS = 3  # audio retained for context when finalizing a continuous
 # Vocabulary hints - bias Whisper toward domain-specific terms it often mishears
 # Loaded from hotwords.txt in the project root (one word/phrase per line)
 _HOTWORDS_PATH = Path(__file__).resolve().parents[2] / "hotwords.txt"
-WHISPER_HOTWORDS = " ".join(
+WHISPER_HOTWORD_TERMS = tuple(
     line.strip()
     for line in _HOTWORDS_PATH.read_text().splitlines()
     if line.strip() and not line.startswith("#")
-) if _HOTWORDS_PATH.exists() else ""
+) if _HOTWORDS_PATH.exists() else ()
+WHISPER_HOTWORDS = " ".join(WHISPER_HOTWORD_TERMS)
 
 # Daemon
 SOCKET_PATH = "/tmp/dictate-live-daemon.sock"

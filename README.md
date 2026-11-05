@@ -250,6 +250,10 @@ python tools/capture_chunks.py tests/audio_fixtures/*.wav
 
 Your local recordings in `tests/audio_fixtures_local/` are never committed to GitHub.
 
+### Benchmark
+
+`tools/benchmark.py` replays the fixtures and measures real-time factor, gate-to-partial latency, WER, and GPU memory. Method, results, and limitations: [docs/benchmark.md](docs/benchmark.md).
+
 ## Troubleshooting
 
 ### Daemon won't start
