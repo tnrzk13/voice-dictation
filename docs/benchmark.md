@@ -59,9 +59,9 @@ full-context decode.
   are taken over samples that fall inside decode intervals. The baseline is
   sampled before the model is loaded. This is whole-GPU memory, not
   model-only memory.
-- **Rounding**: WER to 0.1 percentage point, latency to 10 ms, RTF to two
-  decimals, VRAM to 10 MiB, file sizes to 0.01 GiB. Raw values are unrounded
-  in the JSON.
+- **Rounding**: the harness prints WER as a three-decimal ratio, latency in
+  whole milliseconds, RTF to three decimals and VRAM in whole MiB. Tables round
+  those printed values, RTF to two decimals; the JSON keeps raw values.
 
 Two runs are reported per command. Run 1 is cold for the process (first CUDA
 decode pays kernel initialization); run 2 is warm. The model stays loaded
