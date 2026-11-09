@@ -279,6 +279,10 @@ rm /tmp/dictate-live-daemon.sock
 - Check that you have an active window where text can be typed
 - X11 required - Wayland is not supported
 
+### Text corrects itself or deletes recent words
+
+Whisper keeps the last few seconds (`KEEP_TAIL_SECONDS`) unfinalized, so a revision inside that tail backspaces and retypes it. Text older than the tail is committed and never retyped. The retype is deliberate: the model is still settling those words.
+
 ### Model download issues
 The first run downloads the Whisper model (size varies by model). Progress notifications appear at every 10%. Use `--quiet` to suppress them. If the download fails:
 ```bash
