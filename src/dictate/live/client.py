@@ -9,7 +9,7 @@ import json
 import logging
 import socket
 import threading
-from typing import Optional
+from typing import Iterable, Iterator, List, Optional
 
 from dictate.config import (
     DAEMON_FINISH_TIMEOUT,
@@ -24,6 +24,23 @@ from dictate.daemon_support import is_daemon_running, start_daemon_process
 from .typer import ProgressiveTyper
 
 logger = logging.getLogger(__name__)
+
+PARTIAL_MESSAGE_TYPE = "partial"
+
+
+def _coalesce_partials(messages: Iterable[dict]) -> Iterator[dict]:
+    """Yield messages in order, keeping only the last of each run of partials."""
+    pending: Optional[dict] = None
+    for msg in messages:
+        if msg.get("type") == PARTIAL_MESSAGE_TYPE:
+            pending = msg
+            continue
+        if pending is not None:
+            yield pending
+            pending = None
+        yield msg
+    if pending is not None:
+        yield pending
 
 
 class LiveDaemonClient:
@@ -112,20 +129,33 @@ class LiveDaemonClient:
                 self._on_disconnect.set()
 
     def _process_buffer(self, buffer: bytes) -> bytes:
-        """Parse complete JSON lines from buffer, route to typer."""
+        """Parse complete lines, coalesce stale partials, route in order."""
+        messages: List[dict] = []
         while b"\n" in buffer:
             line, buffer = buffer.split(b"\n", 1)
-            self._handle_message(line.decode("utf-8"))
+            msg = self._parse_message(line.decode("utf-8"))
+            if msg is not None:
+                messages.append(msg)
+        for msg in _coalesce_partials(messages):
+            self._apply_message(msg)
         return buffer
 
     def _handle_message(self, raw: str) -> None:
         """Route a single JSON message to the appropriate typer method."""
+        msg = self._parse_message(raw)
+        if msg is not None:
+            self._apply_message(msg)
+
+    def _parse_message(self, raw: str) -> Optional[dict]:
+        """Parse one JSON line, logging and dropping malformed input."""
         try:
-            msg = json.loads(raw)
+            return json.loads(raw)
         except json.JSONDecodeError:
             logger.warning(f"Invalid JSON from daemon: {raw}")
-            return
+            return None
 
+    def _apply_message(self, msg: dict) -> None:
+        """Route a parsed message to the appropriate typer method."""
         msg_type = msg.get("type")
         text = msg.get("text", "")
 
@@ -133,7 +163,7 @@ class LiveDaemonClient:
             self._done.set()
         elif self._stop_event is not None and self._stop_event.is_set():
             return
-        elif msg_type == "partial" and self._streaming:
+        elif msg_type == PARTIAL_MESSAGE_TYPE and self._streaming:
             self._typer.apply_partial(text, msg.get("finalized", ""))
         elif msg_type == "final":
             self._typer.apply_final(text)

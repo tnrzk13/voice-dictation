@@ -157,8 +157,8 @@ The key insight: **the typer never re-types text that's already correct on scree
 
 Text is physically typed using **xdotool**, an X11 automation tool:
 
-- Regular text: `xdotool type --delay 5 "text"` (5ms between characters)
-- Backspaces: `xdotool key --delay 0 BackSpace BackSpace ...` (no delay, fast deletion)
+- Regular text: `xdotool type --clearmodifiers --delay 30 -- "text"` (30ms between characters)
+- Backspaces: `xdotool key --clearmodifiers --delay 8 BackSpace ...` (8ms between backspaces)
 - Special keys: newlines become `xdotool key Return`, tabs become `xdotool key Tab`
 
 There's a **50ms settle delay** (`BACKSPACE_SETTLE_DELAY`) between sending backspaces and typing new text, giving the target application time to process the deletions before new characters arrive.
@@ -195,7 +195,8 @@ An `InputMonitor` runs two background threads using `pynput` - one for keyboard,
 | `FINAL_PUNCTUATION_PROMPT` | (sentence) | Punctuation-style seed for the final pass |
 | `KEEP_TAIL_SECONDS` | 3s | Audio kept for context when finalizing a continuous segment |
 | `WHISPER_MODEL_SIZE` | "large-v3-turbo" | Default model, ~1.6 GB download |
-| `XDOTOOL_KEYSTROKE_DELAY` | 12ms | Delay between typed characters |
+| `XDOTOOL_KEYSTROKE_DELAY` | 30ms | Delay between typed characters |
+| `XDOTOOL_BACKSPACE_DELAY_MS` | 8ms | Delay between backspace keys |
 | `BACKSPACE_SETTLE_DELAY` | 50ms | Pause after backspaces before typing |
 | `DAEMON_STARTUP_TIMEOUT` | 10s | Max wait for model to load |
 

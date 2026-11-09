@@ -1,11 +1,17 @@
 """Tests for the live dictation streaming client."""
 
 import json
+import logging
 import threading
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call
 
 from dictate.live.client import LiveDaemonClient
 from dictate.live.typer import ProgressiveTyper
+
+
+def _encode_lines(*messages: dict) -> bytes:
+    """Encode messages as the newline-delimited JSON the daemon sends."""
+    return b"".join(json.dumps(message).encode() + b"\n" for message in messages)
 
 
 class TestHandleMessage:
@@ -82,6 +88,63 @@ class TestProcessBuffer:
         line2 = json.dumps({"type": "final", "text": "ab"}).encode() + b"\n"
         client._process_buffer(line1 + line2)
         assert typer.apply_final.call_count == 2
+
+    def test_coalesces_consecutive_partials_to_last(self):
+        client, typer = self._make_client()
+        buffer = _encode_lines(
+            {"type": "partial", "text": "hel", "finalized": ""},
+            {"type": "partial", "text": "hello world", "finalized": "hello"},
+        )
+        client._process_buffer(buffer)
+        typer.apply_partial.assert_called_once_with("hello world", "hello")
+
+    def test_partial_then_final_applies_both_in_order(self):
+        client, typer = self._make_client()
+        buffer = _encode_lines(
+            {"type": "partial", "text": "hello world", "finalized": "hello"},
+            {"type": "final", "text": "hello world."},
+        )
+        client._process_buffer(buffer)
+        assert typer.mock_calls == [
+            call.apply_partial("hello world", "hello"),
+            call.apply_final("hello world."),
+        ]
+
+    def test_partials_then_end_delivers_last_partial_and_end(self):
+        client, typer = self._make_client()
+        buffer = _encode_lines(
+            {"type": "partial", "text": "hel", "finalized": ""},
+            {"type": "partial", "text": "hello", "finalized": ""},
+            {"type": "end", "text": ""},
+        )
+        client._process_buffer(buffer)
+        typer.apply_partial.assert_called_once_with("hello", "")
+        assert client._done.is_set()
+
+    def test_partials_separated_by_final_are_not_coalesced(self):
+        client, typer = self._make_client()
+        buffer = _encode_lines(
+            {"type": "partial", "text": "a", "finalized": ""},
+            {"type": "final", "text": "a "},
+            {"type": "partial", "text": "ab", "finalized": ""},
+        )
+        client._process_buffer(buffer)
+        typed_partials = [c.args[0] for c in typer.apply_partial.call_args_list]
+        assert typed_partials == ["a", "ab"]
+        typer.apply_final.assert_called_once_with("a ")
+
+    def test_logs_and_skips_malformed_line(self, caplog):
+        client, typer = self._make_client()
+        buffer = b"not json at all\n" + _encode_lines({"type": "final", "text": "hi"})
+        with caplog.at_level(logging.WARNING):
+            client._process_buffer(buffer)
+        typer.apply_final.assert_called_once_with("hi")
+        assert "Invalid JSON from daemon" in caplog.text
+
+    def test_single_partial_unchanged(self):
+        client, typer = self._make_client()
+        client._process_buffer(_encode_lines({"type": "partial", "text": "hel"}))
+        typer.apply_partial.assert_called_once_with("hel", "")
 
 
 class TestSendAudio:

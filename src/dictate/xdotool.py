@@ -3,7 +3,7 @@
 import logging
 import subprocess
 
-from .config import XDOTOOL_KEYSTROKE_DELAY
+from .config import XDOTOOL_BACKSPACE_DELAY_MS, XDOTOOL_KEYSTROKE_DELAY
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +19,17 @@ def type_text(text: str) -> None:
     parts = _split_special_chars(text, _SPECIAL_KEYS)
     for part in parts:
         if part in _SPECIAL_KEYS:
-            _run_xdotool(["key", _SPECIAL_KEYS[part]])
+            _run_xdotool(["key", "--clearmodifiers", _SPECIAL_KEYS[part]])
         elif part:
             _run_xdotool(
-                ["type", "--delay", str(XDOTOOL_KEYSTROKE_DELAY), part]
+                [
+                    "type",
+                    "--clearmodifiers",
+                    "--delay",
+                    str(XDOTOOL_KEYSTROKE_DELAY),
+                    "--",
+                    part,
+                ]
             )
 
 
@@ -45,7 +52,10 @@ def _split_special_chars(text: str, special: dict) -> list:
 
 def send_backspaces(count: int) -> None:
     """Send backspace key presses via xdotool."""
-    _run_xdotool(["key", "--delay", "0"] + ["BackSpace"] * count)
+    _run_xdotool(
+        ["key", "--clearmodifiers", "--delay", str(XDOTOOL_BACKSPACE_DELAY_MS)]
+        + ["BackSpace"] * count
+    )
 
 
 def _run_xdotool(args: list) -> None:

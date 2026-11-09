@@ -59,5 +59,6 @@ MAX_BUFFER_SECONDS = 60  # hard cap on audio buffer growth when model is slow
 MAX_SESSION_SECONDS = 60  # audio kept for the full-context final; longer sessions fall back
 
 # UI/UX
-XDOTOOL_KEYSTROKE_DELAY = 12  # milliseconds between keystrokes
+XDOTOOL_KEYSTROKE_DELAY = 30  # milliseconds between keystrokes
+XDOTOOL_BACKSPACE_DELAY_MS = 8  # milliseconds between backspace keys
 BACKSPACE_SETTLE_DELAY = 0.05  # seconds - let backspaces process before typing

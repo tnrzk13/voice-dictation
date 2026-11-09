@@ -26,16 +26,58 @@ class TestRunXdotool:
 
 class TestTypeText:
     @patch("dictate.xdotool.subprocess.run")
+    def test_type_call_uses_exact_argv(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stderr=b"")
+        type_text("hello")
+        assert mock_run.call_args[0][0] == [
+            "xdotool",
+            "type",
+            "--clearmodifiers",
+            "--delay",
+            "30",
+            "--",
+            "hello",
+        ]
+
+    @patch("dictate.xdotool.subprocess.run")
     def test_splits_special_keys(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0, stderr=b"")
         type_text("hello\tworld\n")
-        assert mock_run.call_count == 4
+        argvs = [call[0][0] for call in mock_run.call_args_list]
+        assert argvs == [
+            ["xdotool", "type", "--clearmodifiers", "--delay", "30", "--", "hello"],
+            ["xdotool", "key", "--clearmodifiers", "Tab"],
+            ["xdotool", "type", "--clearmodifiers", "--delay", "30", "--", "world"],
+            ["xdotool", "key", "--clearmodifiers", "Return"],
+        ]
+
+    @patch("dictate.xdotool.subprocess.run")
+    def test_payload_survives_verbatim_including_leading_dash(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stderr=b"")
+        payload = "-n --delay 99 literal"
+        type_text(payload)
+        assert mock_run.call_args[0][0] == [
+            "xdotool",
+            "type",
+            "--clearmodifiers",
+            "--delay",
+            "30",
+            "--",
+            payload,
+        ]
 
 
 class TestSendBackspaces:
     @patch("dictate.xdotool.subprocess.run")
-    def test_sends_correct_count(self, mock_run):
+    def test_backspace_call_uses_exact_argv(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0, stderr=b"")
-        send_backspaces(3)
-        args = mock_run.call_args[0][0]
-        assert args.count("BackSpace") == 3
+        send_backspaces(2)
+        assert mock_run.call_args[0][0] == [
+            "xdotool",
+            "key",
+            "--clearmodifiers",
+            "--delay",
+            "8",
+            "BackSpace",
+            "BackSpace",
+        ]
