@@ -77,7 +77,7 @@ class TestSendBackspaces:
             "key",
             "--clearmodifiers",
             "--delay",
-            "8",
+            "3",
             "BackSpace",
             "BackSpace",
         ]

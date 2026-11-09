@@ -2,6 +2,7 @@
 
 from unittest.mock import patch
 
+from dictate.config import BACKSPACE_SETTLE_DELAY
 from dictate.live.typer import (
     ProgressiveTyper,
     _capitalize_first,
@@ -328,7 +329,7 @@ class TestBackspaceSettleDelay:
         typer._execute_edit(5, "world")
 
         mock_bs.assert_called_once_with(5)
-        mock_time.sleep.assert_called_once_with(0.05)
+        mock_time.sleep.assert_called_once_with(BACKSPACE_SETTLE_DELAY)
         mock_type.assert_called_once_with("world")
 
     def test_no_sleep_when_only_backspaces(self, mock_time, mock_type, mock_bs):

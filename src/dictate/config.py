@@ -78,5 +78,5 @@ MAX_SESSION_SECONDS = 60  # audio kept for the full-context final; longer sessio
 
 # UI/UX
 XDOTOOL_KEYSTROKE_DELAY = 30  # milliseconds between keystrokes
-XDOTOOL_BACKSPACE_DELAY_MS = 8  # milliseconds between backspace keys
-BACKSPACE_SETTLE_DELAY = 0.05  # seconds - let backspaces process before typing
+XDOTOOL_BACKSPACE_DELAY_MS = 3  # milliseconds between backspace keys
+BACKSPACE_SETTLE_DELAY = 0.025  # seconds - let backspaces process before typing
