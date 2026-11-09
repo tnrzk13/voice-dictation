@@ -26,6 +26,7 @@ import logging
 import signal
 import socket
 import threading
+from typing import Optional
 
 import numpy as np
 
@@ -34,7 +35,14 @@ from dictate.config import (
     BYTES_PER_SAMPLE,
     BYTES_PER_SECOND,
     DAEMON_LOG,
+    DEGENERATE_CHAR_RUN_MIN_LENGTH,
+    DEGENERATE_IDENTICAL_TOKEN_MIN_COUNT,
+    DEGENERATE_RUN_MIN_REPEATS,
     FINAL_PUNCTUATION_PROMPT,
+    GLOSSARY_MIN_AUDIO_SECONDS,
+    HALLUCINATION_LOGPROB_FLOOR,
+    HALLUCINATION_MAX_COMPRESSION_RATIO,
+    HALLUCINATION_NO_SPEECH_PROB,
     KEEP_TAIL_SECONDS,
     MAX_BUFFER_SECONDS,
     MAX_SESSION_SECONDS,
@@ -43,7 +51,7 @@ from dictate.config import (
     TRANSCRIBE_INTERVAL,
     TRANSCRIBE_MIN_AUDIO_SECONDS,
     WHISPER_BEAM_SIZE,
-    WHISPER_HOTWORDS,
+    WHISPER_GLOSSARY_PROMPT,
     WHISPER_NO_REPEAT_NGRAM_SIZE,
     WHISPER_REPETITION_PENALTY,
     WHISPER_TEMPERATURE,
@@ -208,7 +216,11 @@ def _transcribe_loop(connection: socket.socket, model, audio: _AudioBuffer) -> N
         if not snapshot:
             continue
 
-        segments = _transcribe(model, snapshot, initial_prompt=finalized_text)
+        prompt = _streaming_prompt(finalized_text, len(snapshot))
+        segments = _transcribe(model, snapshot, initial_prompt=prompt)
+        segments = _reject_hallucinated_segments(segments)
+        if not segments:
+            continue
         full_text = "".join(seg["text"] for seg in segments)
         if not full_text:
             continue
@@ -228,6 +240,15 @@ def _transcribe_loop(connection: socket.socket, model, audio: _AudioBuffer) -> N
         _send_message(connection, "final", final_text)
 
     _send_message(connection, "end", "")
+
+
+def _streaming_prompt(finalized_text: str, audio_length_bytes: int) -> str:
+    """Choose the streaming seed: committed context, else the glossary prompt."""
+    if finalized_text:
+        return finalized_text
+    if audio_length_bytes >= GLOSSARY_MIN_AUDIO_SECONDS * BYTES_PER_SECOND:
+        return WHISPER_GLOSSARY_PROMPT
+    return ""
 
 
 def _final_text(model, audio: _AudioBuffer, last_partial_text: str) -> str:
@@ -250,9 +271,9 @@ def _final_text(model, audio: _AudioBuffer, last_partial_text: str) -> str:
 def _transcribe_final(model, audio_bytes: bytes) -> list:
     """Full-context decode for the final transcript.
 
-    VAD trimming, the anti-repetition penalties, and a bare hotword prompt
-    each suppress sentence-final punctuation, which is the opposite of what
-    the final pass wants. Relax them and seed a punctuated style instead.
+    VAD trimming and the anti-repetition penalties each suppress
+    sentence-final punctuation, which is the opposite of what the final pass
+    wants. Relax them and seed a punctuated style instead.
     """
     return _transcribe(
         model,
@@ -383,6 +404,67 @@ def _collapse_repetitions(text: str) -> str:
     return leading + " ".join(words)
 
 
+def _reject_hallucinated_segments(segments) -> list:
+    """Drop streaming segments that look like decoder hallucinations."""
+    kept = []
+    for segment in segments:
+        reason = _hallucination_reason(segment)
+        if reason is None:
+            kept.append(segment)
+            continue
+        logging.info(
+            "Dropped likely hallucination (%s): %r",
+            reason,
+            segment.get("text", "").strip(),
+        )
+    return kept
+
+
+def _hallucination_reason(segment) -> Optional[str]:
+    """Return why a streaming segment looks hallucinated, or None."""
+    text = segment.get("text", "")
+    if _is_degenerate_run(text):
+        return "degenerate repeat"
+
+    compression_ratio = segment.get("compression_ratio")
+    if (
+        compression_ratio is not None
+        and compression_ratio > HALLUCINATION_MAX_COMPRESSION_RATIO
+    ):
+        return "high compression ratio"
+
+    no_speech_prob = segment.get("no_speech_prob")
+    avg_logprob = segment.get("avg_logprob")
+    if (
+        no_speech_prob is not None
+        and avg_logprob is not None
+        and no_speech_prob > HALLUCINATION_NO_SPEECH_PROB
+        and avg_logprob < HALLUCINATION_LOGPROB_FLOOR
+    ):
+        return "silence with low confidence"
+    return None
+
+
+def _is_degenerate_run(text: str) -> bool:
+    """Detect whole-segment decoder loops; mixed text is kept so real speech survives."""
+    tokens = text.split()
+    if not tokens:
+        return False
+    if len(tokens) == 1:
+        return _is_character_run(tokens[0], DEGENERATE_CHAR_RUN_MIN_LENGTH)
+    token = tokens[0]
+    if len({t.lower() for t in tokens}) != 1:
+        return False
+    if len(token) == 1:
+        return len(tokens) >= DEGENERATE_RUN_MIN_REPEATS
+    return len(tokens) >= DEGENERATE_IDENTICAL_TOKEN_MIN_COUNT
+
+
+def _is_character_run(token: str, min_length: int) -> bool:
+    """True when token is one character repeated at least min_length times."""
+    return len(token) >= min_length and len(set(token)) == 1
+
+
 def _transcribe(
     model,
     audio_bytes: bytes,
@@ -400,8 +482,9 @@ def _transcribe(
     exist for the final pass (see ``_transcribe_final``); they default to the
     streaming values.
 
-    Each segment has 'text', 'start', 'end', and 'words' (per-word start/end
-    spans) keys. Callers that only need the full text can join segment texts.
+    Each segment has 'text', 'start', 'end', 'words', and the decoder
+    confidence metadata the streaming hallucination guard inspects. Callers
+    that only need the full text can join segment texts.
     """
     if vad_filter is None:
         vad_filter = WHISPER_VAD_FILTER
@@ -417,11 +500,11 @@ def _transcribe(
         temperature=WHISPER_TEMPERATURE,
         vad_filter=vad_filter,
         vad_parameters=dict(min_silence_duration_ms=WHISPER_VAD_MIN_SILENCE_MS),
-        hotwords=WHISPER_HOTWORDS,
         repetition_penalty=repetition_penalty,
         no_repeat_ngram_size=no_repeat_ngram_size,
         word_timestamps=word_timestamps,
         initial_prompt=initial_prompt or None,
+        condition_on_previous_text=True,
     )
     return [
         {
@@ -431,6 +514,9 @@ def _transcribe(
             "words": [
                 {"start": word.start, "end": word.end} for word in (seg.words or [])
             ],
+            "no_speech_prob": seg.no_speech_prob,
+            "avg_logprob": seg.avg_logprob,
+            "compression_ratio": seg.compression_ratio,
         }
         for seg in segments
     ]

@@ -8,6 +8,8 @@ The harness is `tools/benchmark.py`. Raw results are in
 `tools/benchmark-results.json` (committed fixtures) and
 `tools/benchmark-results-local.json` (committed plus local takes).
 
+> 2026-11-09: the recorded numbers predate the streaming glossary-prompt change; they were measured with 12 ms per-character typing and the bare hotword prompt. The current code types at 30 ms per character with an 8 ms backspace delay and seeds the session-start glossary instead.
+
 ## Environment
 
 | Item | Value |

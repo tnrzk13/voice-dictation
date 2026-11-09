@@ -56,7 +56,7 @@ FIXTURES: Dict[str, Dict[str, str]] = {
             "GitHub pull requests, sudo access, tmux sessions, and YAML configs."
         ),
         "directions": "Speak naturally and include each term from your hotwords.txt.",
-        "focus": "Tests that Whisper hotword bias is applied to your actual terms.",
+        "focus": "Tests that the glossary prompt at session start helps with your actual terms.",
     },
     "numbers_and_symbols": {
         "script": (

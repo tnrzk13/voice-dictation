@@ -20,10 +20,19 @@ WHISPER_VAD_FILTER = True
 WHISPER_VAD_MIN_SILENCE_MS = 500
 WHISPER_NO_REPEAT_NGRAM_SIZE = 3
 WHISPER_REPETITION_PENALTY = 1.2
+# Streaming hallucination guard - reject decoder-confidence and degenerate-text signals.
+HALLUCINATION_NO_SPEECH_PROB = 0.6
+HALLUCINATION_LOGPROB_FLOOR = -1.0
+HALLUCINATION_MAX_COMPRESSION_RATIO = 2.4
+DEGENERATE_RUN_MIN_REPEATS = 3
+DEGENERATE_CHAR_RUN_MIN_LENGTH = 4
+DEGENERATE_IDENTICAL_TOKEN_MIN_COUNT = 6
+# Minimum audio before the glossary prompt seeds a decode on its own.
+GLOSSARY_MIN_AUDIO_SECONDS = 1.0
 
 # Final pass - the full-context decode that restores sentence punctuation.
 # A punctuated seed biases sentence style; without it the decoder often omits
-# the closing period, especially when hotwords prime it with a bare word list.
+# the closing period.
 FINAL_PUNCTUATION_PROMPT = "Okay, here is a sentence, with commas, and a full stop."
 
 # Transcription Timing
@@ -39,7 +48,16 @@ WHISPER_HOTWORD_TERMS = tuple(
     for line in _HOTWORDS_PATH.read_text().splitlines()
     if line.strip() and not line.startswith("#")
 ) if _HOTWORDS_PATH.exists() else ()
-WHISPER_HOTWORDS = " ".join(WHISPER_HOTWORD_TERMS)
+
+
+def build_glossary_prompt(terms) -> str:
+    """Build the one-sentence glossary prompt from the configured terms."""
+    if not terms:
+        return ""
+    return f"The speaker may use technical terms such as {', '.join(terms)}."
+
+
+WHISPER_GLOSSARY_PROMPT = build_glossary_prompt(WHISPER_HOTWORD_TERMS)
 
 # Daemon
 SOCKET_PATH = "/tmp/dictate-live-daemon.sock"

@@ -1,18 +1,33 @@
 """Tests for the live dictation daemon message protocol."""
 
 import json
+import logging
 import threading
 import time
 from unittest.mock import MagicMock, patch
 
-from dictate.config import BYTES_PER_SAMPLE, BYTES_PER_SECOND
+from dictate.config import (
+    BYTES_PER_SAMPLE,
+    BYTES_PER_SECOND,
+    FINAL_PUNCTUATION_PROMPT,
+    GLOSSARY_MIN_AUDIO_SECONDS,
+    WHISPER_GLOSSARY_PROMPT,
+    WHISPER_HOTWORD_TERMS,
+    build_glossary_prompt,
+)
 from dictate.live.daemon import (
     _AudioBuffer,
     _collapse_repetitions,
     _concat_transcriptions,
     _final_text,
     _finalize_completed_segments,
+    _hallucination_reason,
+    _is_degenerate_run,
     _send_message,
+    _streaming_prompt,
+    _transcribe,
+    _transcribe_final,
+    _transcribe_loop,
     _trim_oldest_audio,
     handle_client,
 )
@@ -67,6 +82,9 @@ def _make_segment(text=" Hello world.", start=0.0, end=1.0):
     seg.text = text
     seg.start = start
     seg.end = end
+    seg.no_speech_prob = 0.0
+    seg.avg_logprob = 0.0
+    seg.compression_ratio = 1.0
     return seg
 
 
@@ -469,6 +487,120 @@ class TestTrimOldestAudio:
         assert len(audio) == 40
 
 
+GLOSSARY_SENTINEL = "The speaker may use technical terms such as alpha, beta."
+
+
+class TestBuildGlossaryPrompt:
+    def test_builds_one_sentence_from_terms(self):
+        assert build_glossary_prompt(("tmux", "YAML", "Jira")) == (
+            "The speaker may use technical terms such as tmux, YAML, Jira."
+        )
+
+    def test_no_terms_yields_empty_prompt(self):
+        assert build_glossary_prompt(()) == ""
+
+    def test_live_prompt_matches_hotword_terms(self):
+        assert WHISPER_GLOSSARY_PROMPT == build_glossary_prompt(WHISPER_HOTWORD_TERMS)
+
+
+class TestStreamingPrompt:
+    def test_uses_glossary_for_empty_finalized_at_one_second(self, monkeypatch):
+        monkeypatch.setattr(
+            "dictate.live.daemon.WHISPER_GLOSSARY_PROMPT", GLOSSARY_SENTINEL
+        )
+        one_second = int(GLOSSARY_MIN_AUDIO_SECONDS * BYTES_PER_SECOND)
+        assert _streaming_prompt("", one_second) == GLOSSARY_SENTINEL
+
+    def test_no_glossary_below_one_second(self, monkeypatch):
+        monkeypatch.setattr(
+            "dictate.live.daemon.WHISPER_GLOSSARY_PROMPT", GLOSSARY_SENTINEL
+        )
+        below_one_second = (
+            int(GLOSSARY_MIN_AUDIO_SECONDS * BYTES_PER_SECOND) - BYTES_PER_SAMPLE
+        )
+        assert _streaming_prompt("", below_one_second) == ""
+
+    def test_uses_finalized_text_once_non_empty(self):
+        assert _streaming_prompt("hello there", 10 * BYTES_PER_SECOND) == "hello there"
+
+    def test_finalized_text_wins_below_one_second(self):
+        assert _streaming_prompt("hello", 0) == "hello"
+
+
+class TestTranscribeKwargs:
+    def test_never_passes_hotwords(self):
+        model = _make_whisper_model()
+        _transcribe(model, b"\x00" * 100)
+        assert "hotwords" not in model.transcribe.call_args.kwargs
+
+    def test_passes_initial_prompt_through(self):
+        model = _make_whisper_model()
+        _transcribe(model, b"\x00" * 100, initial_prompt="hello")
+        assert model.transcribe.call_args.kwargs["initial_prompt"] == "hello"
+
+    def test_pins_condition_on_previous_text(self):
+        model = _make_whisper_model()
+        _transcribe(model, b"\x00" * 100)
+        assert model.transcribe.call_args.kwargs["condition_on_previous_text"] is True
+
+    def test_returns_decoder_confidence_metadata(self):
+        segment = _make_segment()
+        segment.no_speech_prob = 0.1
+        segment.avg_logprob = -0.2
+        segment.compression_ratio = 1.1
+        model = _make_whisper_model([segment])
+        result = _transcribe(model, b"\x00" * 100)[0]
+        assert result["no_speech_prob"] == 0.1
+        assert result["avg_logprob"] == -0.2
+        assert result["compression_ratio"] == 1.1
+
+
+class TestTranscribeFinal:
+    def test_uses_punctuation_prompt_without_glossary(self, monkeypatch):
+        monkeypatch.setattr(
+            "dictate.live.daemon.WHISPER_GLOSSARY_PROMPT", GLOSSARY_SENTINEL
+        )
+        model = _make_whisper_model()
+        _transcribe_final(model, b"\x00" * 100)
+        kwargs = model.transcribe.call_args.kwargs
+        assert kwargs["initial_prompt"] == FINAL_PUNCTUATION_PROMPT
+        assert "hotwords" not in kwargs
+        assert GLOSSARY_SENTINEL not in kwargs["initial_prompt"]
+
+
+class TestStreamingGlossary:
+    def test_first_cycle_seeds_glossary_for_one_second_snapshot(self, monkeypatch):
+        monkeypatch.setattr(
+            "dictate.live.daemon.WHISPER_GLOSSARY_PROMPT", GLOSSARY_SENTINEL
+        )
+        calls = []
+        transcribed = threading.Event()
+
+        def fake_transcribe(model, audio_bytes, **kwargs):
+            calls.append(kwargs)
+            transcribed.set()
+            return []
+
+        sent_audio = threading.Event()
+
+        def recv_audio_then_hold(size):
+            if not sent_audio.is_set():
+                sent_audio.set()
+                return b"\x00" * int(
+                    GLOSSARY_MIN_AUDIO_SECONDS * BYTES_PER_SECOND
+                )
+            transcribed.wait(timeout=2)
+            return b""
+
+        conn = MagicMock()
+        conn.recv.side_effect = recv_audio_then_hold
+
+        with patch("dictate.live.daemon._transcribe", side_effect=fake_transcribe):
+            handle_client(conn, MagicMock())
+
+        assert GLOSSARY_SENTINEL in [c["initial_prompt"] for c in calls]
+
+
 class TestCollapseRepetitions:
     def test_collapses_repeated_phrase(self):
         text = "shift super d to shift super d to kill the daemon"
@@ -492,3 +624,122 @@ class TestCollapseRepetitions:
     def test_collapses_three_word_phrase(self):
         text = "one two three one two three four"
         assert _collapse_repetitions(text) == "one two three four"
+
+
+def _hallucination_segment(
+    text, no_speech_prob=0.0, avg_logprob=0.0, compression_ratio=1.0
+):
+    return {
+        "text": text,
+        "start": 0.0,
+        "end": 1.0,
+        "words": [],
+        "no_speech_prob": no_speech_prob,
+        "avg_logprob": avg_logprob,
+        "compression_ratio": compression_ratio,
+    }
+
+
+class TestHallucinationReason:
+    def test_rejects_silence_with_low_confidence(self):
+        segment = _hallucination_segment(
+            " Hello.", no_speech_prob=0.9, avg_logprob=-1.5
+        )
+        assert _hallucination_reason(segment) == "silence with low confidence"
+
+    def test_allows_high_no_speech_with_confident_logprob(self):
+        segment = _hallucination_segment(
+            " Hello.", no_speech_prob=0.9, avg_logprob=-0.5
+        )
+        assert _hallucination_reason(segment) is None
+
+    def test_allows_low_logprob_without_high_no_speech(self):
+        segment = _hallucination_segment(
+            " Hello.", no_speech_prob=0.1, avg_logprob=-1.5
+        )
+        assert _hallucination_reason(segment) is None
+
+    def test_allows_threshold_silence_values(self):
+        segment = _hallucination_segment(
+            " Hello.", no_speech_prob=0.6, avg_logprob=-1.0
+        )
+        assert _hallucination_reason(segment) is None
+
+    def test_rejects_high_compression_ratio(self):
+        segment = _hallucination_segment(" Hello.", compression_ratio=2.5)
+        assert _hallucination_reason(segment) == "high compression ratio"
+
+    def test_allows_compression_ratio_at_threshold(self):
+        segment = _hallucination_segment(" Hello.", compression_ratio=2.4)
+        assert _hallucination_reason(segment) is None
+
+    def test_rejects_single_character_run(self):
+        segment = _hallucination_segment(" YYYY")
+        assert _hallucination_reason(segment) == "degenerate repeat"
+
+    def test_rejects_three_identical_single_character_tokens(self):
+        segment = _hallucination_segment(" Y Y Y")
+        assert _hallucination_reason(segment) == "degenerate repeat"
+
+    def test_rejects_four_identical_single_character_tokens(self):
+        segment = _hallucination_segment(" Y Y Y Y")
+        assert _hallucination_reason(segment) == "degenerate repeat"
+
+    def test_rejects_six_identical_tokens_of_any_length(self):
+        segment = _hallucination_segment(" the the the the the the")
+        assert _hallucination_reason(segment) == "degenerate repeat"
+
+    def test_allows_three_identical_short_words(self):
+        segment = _hallucination_segment(" no no no")
+        assert _hallucination_reason(segment) is None
+
+    def test_allows_normal_speech(self):
+        segment = _hallucination_segment(" Hello world.")
+        assert _hallucination_reason(segment) is None
+
+    def test_allows_missing_metadata(self):
+        assert _hallucination_reason({"text": " Hello world."}) is None
+
+    def test_ignores_missing_metadata_for_degenerate_text(self):
+        assert _hallucination_reason({"text": " Y Y Y"}) == "degenerate repeat"
+
+
+class TestIsDegenerateRun:
+    def test_two_single_character_tokens_are_not_enough(self):
+        assert _is_degenerate_run("Y Y") is False
+
+    def test_short_character_run_is_not_degenerate(self):
+        assert _is_degenerate_run("YYY") is False
+
+    def test_four_character_run_is_degenerate(self):
+        assert _is_degenerate_run("YYYY") is True
+
+
+class TestStreamingHallucinationGuard:
+    def test_rejected_segment_is_not_streamed_finalized_or_trimmed(self, caplog):
+        caplog.set_level(logging.INFO)
+        audio = _AudioBuffer()
+        payload = b"\x01\x02" * 5000
+        audio.append(payload, max_bytes=100000)
+        audio.is_finished = MagicMock(side_effect=[False, True])
+
+        conn = MagicMock()
+        hallucinated = _hallucination_segment(" Y Y Y")
+
+        with patch(
+            "dictate.live.daemon._transcribe", return_value=[hallucinated]
+        ):
+            with patch(
+                "dictate.live.daemon._finalize_completed_segments"
+            ) as finalize, patch(
+                "dictate.live.daemon._final_text", return_value=""
+            ):
+                _transcribe_loop(conn, MagicMock(), audio)
+
+        finalize.assert_not_called()
+        assert audio.take_snapshot() == payload
+        assert [m for m in _parse_sent_messages(conn) if m["type"] == "partial"] == []
+        assert (
+            "Dropped likely hallucination (degenerate repeat): 'Y Y Y'"
+            in caplog.text
+        )

@@ -135,6 +135,8 @@ Available model sizes: `tiny`, `base`, `small`, `medium`, `large-v3`, `large-v3-
 
 Copy `hotwords.example.txt` to `hotwords.txt` and add domain-specific terms that Whisper often mishears (one per line). This file is gitignored so each user can customize it.
 
+The terms seed streaming as one sentence ("The speaker may use technical terms such as ...") until the first segment is finalized, and only once at least one second of audio is buffered - normally the opening of the session. The bare list is never passed to the decoder.
+
 ### Streaming settings
 
 Edit `src/dictate/config.py`:

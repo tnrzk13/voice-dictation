@@ -36,15 +36,19 @@ The length gate counts bytes received since the last snapshot, not raw buffer le
 
 Completed segments are finalized continuously (see "The commit policy" below), not only at the end of a session.
 
+### Streaming hallucination guard
+
+Whisper sometimes loops on silence or noise and emits a degenerate segment such as `Y Y Y Y`. Each streaming segment is rejected when it is a degenerate repeat, when its compression ratio exceeds `HALLUCINATION_MAX_COMPRESSION_RATIO`, or when high no-speech probability coincides with low average log-probability. Rejected segments are dropped before display, finalization, and trimming. If every segment in a cycle is rejected, the audio stays buffered and is re-decoded next cycle, so a quiet real utterance is not lost. The final pass is not filtered.
+
 ### The final pass
 
 Streaming finalizes chunks before Whisper has the rest of the sentence, so commas and sentence-final periods are lost. At EOF the daemon re-transcribes all of the session's audio in one decode, which gives Whisper the full context to punctuate and capitalize. It is primed with `FINAL_PUNCTUATION_PROMPT` because the decode settings tuned for streaming each suppress terminal punctuation:
 
 - `vad_filter=False` - trimming trailing silence removes the cue for a sentence end
 - `repetition_penalty=1.0`, `no_repeat_ngram_size=0` - these penalize the already-seen period token
-- a punctuated seed - a bare hotword list primes the decoder to omit the closing period
+- a punctuated seed - without it the decoder often omits the closing period
 
-Hotwords stay enabled so domain terms survive. Sessions longer than `MAX_SESSION_SECONDS` skip the re-decode and fall back to the last partial, bounding memory and final-pass latency.
+The one-sentence glossary built from `hotwords.txt` seeds streaming only; the final pass omits it. Sessions longer than `MAX_SESSION_SECONDS` skip the re-decode and fall back to the last partial, bounding memory and final-pass latency.
 
 The client only applies the final while the session is still live: once you press a stop key it suppresses all further messages, because typing after the stop gesture would land after the key the user just pressed (or in a window that has since taken focus). So with the default stop-key flow the punctuated final is produced but not typed.
 
@@ -60,7 +64,7 @@ daemon -> client:  {"type": "end",     "text": ""}
 
 The daemon finalizes completed segments (bounded by silence) every cycle and keeps only the last segment's audio in the buffer. For continuous speech with no silence, it finalizes all but the last `KEEP_TAIL_SECONDS` (3s) of speech and trims the buffer to the start of the first kept word. The split comes from Whisper's **per-word timestamps** (`word_timestamps=True`), so pauses and speaking rate cannot skew it the way a word-count-over-duration estimate would. If timings are missing or misaligned (for example after repetition collapse rewrites a segment), the daemon defers finalization rather than guess.
 
-After a trim the buffer starts mid-sentence, so each transcription is primed with `initial_prompt` set to the finalized text. This gives the decoder the preceding context; without it, re-decoding a contextless tail makes Whisper drop or invent the boundary words.
+After a trim the buffer starts mid-sentence, so each transcription is primed with `initial_prompt` set to the finalized text whenever it exists. This gives the decoder the preceding context; without it, re-decoding a contextless tail makes Whisper drop or invent the boundary words. Until the first segment is finalized, and only once at least one second of audio is buffered, the prompt carries the one-sentence glossary built from `hotwords.txt`.
 
 Each partial carries this finalized prefix so the client locks exactly the text the daemon will not revise, which is what makes low transcribe gates safe (see Phase 4).
 
