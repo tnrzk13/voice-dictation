@@ -47,6 +47,17 @@ full-context decode.
   transcript shipped with each fixture. Script WER uses the known fixture
   script (`hello_world` maps to `simple_sentence`, `pause_and_continue` maps to
   `mid_sentence_pause`).
+- **Visible WER**: the same word-level comparison against the text of the last
+  partial emitted before EOF, using the same reference and script as the WER
+  above. Both WERs are reported because the client drops every message after the
+  stop key, so the final pass never types, and the gap between visible and final
+  WER is the size of that discarded correction.
+- **Visible backspaces**: backspaces accumulated up to and including that last
+  partial, excluding anything the `final` message would cause, per 100 words.
+- **Revisions per word**: partial revisions divided by words in the final
+  transcript.
+- **Word commit delay**: from a word's end timestamp to the moment the partial
+  containing it is sent.
 - **RTF**: total decode wall time divided by fixture audio duration. Per-decode
   RTF is decode wall time divided by the audio length of that decode. The live
   loop re-decodes overlapping context, so total RTF intentionally counts
@@ -64,6 +75,9 @@ full-context decode.
 - **Rounding**: the harness prints WER as a three-decimal ratio, latency in
   whole milliseconds, RTF to three decimals and VRAM in whole MiB. Tables round
   those printed values, RTF to two decimals; the JSON keeps raw values.
+
+The recorded result JSONs predate these columns; rerun the harness to populate
+them.
 
 Two runs are reported per command. Run 1 is cold for the process (first CUDA
 decode pays kernel initialization); run 2 is warm. The model stays loaded

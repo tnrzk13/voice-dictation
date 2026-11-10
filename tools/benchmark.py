@@ -124,9 +124,12 @@ class SessionRecorder:
         self._watermark_bytes = watermark_bytes
         self._lock = threading.Lock()
         self._pending_trigger_at: Optional[float] = None
+        self._dropped_bytes = 0
         self.cycles: List[dict] = []
         self.messages: List[dict] = []
         self.decodes: List[dict] = []
+        self.commit_groups: List[dict] = []
+        self.last_snapshot_start_seconds = 0.0
         self.floor_wakes = 0
 
     def note_append(self, pending_bytes: int, at: float) -> None:
@@ -134,12 +137,28 @@ class SessionRecorder:
             if self._pending_trigger_at is None and pending_bytes >= self._watermark_bytes:
                 self._pending_trigger_at = at
 
+    def note_trim(self, num_bytes: int) -> None:
+        with self._lock:
+            self._dropped_bytes += max(0, num_bytes)
+
     def note_snapshot(self, at: float) -> None:
         with self._lock:
+            self.last_snapshot_start_seconds = self._dropped_bytes / BYTES_PER_SECOND
             self.cycles.append(
                 {"trigger_at": self._pending_trigger_at, "snapshot_at": at, "partial_at": None}
             )
             self._pending_trigger_at = None
+
+    def note_commit_group(self, words: Sequence[dict], at: float) -> None:
+        with self._lock:
+            self.commit_groups.append(
+                {
+                    "at": at,
+                    "end_times": [word["end"] for word in words],
+                    "buffer_start_seconds": self.last_snapshot_start_seconds,
+                    "send_at": None,
+                }
+            )
 
     def note_floor_wake(self) -> None:
         with self._lock:
@@ -158,6 +177,10 @@ class SessionRecorder:
             for cycle in reversed(self.cycles):
                 if cycle["partial_at"] is None:
                     cycle["partial_at"] = at
+                    break
+            for group in self.commit_groups:
+                if group["send_at"] is None:
+                    group["send_at"] = at
                     break
 
     def note_decode(
@@ -214,13 +237,62 @@ class TimedModel:
         return timed_segments(), info
 
 
+def _flat_word_spans(segments: Sequence[dict]) -> List[dict]:
+    spans: List[dict] = []
+    for segment in segments:
+        spans.extend(segment.get("words") or [])
+    return spans
+
+
+class _CommitInstrumentation:
+    def __init__(self, recorder: SessionRecorder) -> None:
+        self._recorder = recorder
+        self._patched: List[Tuple[str, object]] = []
+
+    def patch(self) -> None:
+        self._patch_finalize()
+
+    def unpatch(self) -> None:
+        for name, original in self._patched:
+            setattr(live_daemon, name, original)
+        self._patched.clear()
+
+    def _patch_finalize(self) -> None:
+        original = getattr(live_daemon, "_finalize_completed_segments", None)
+        if original is None:
+            return
+
+        def finalize(segments, finalized_text):
+            result_text, trim_bytes = original(segments, finalized_text)
+            committed = len(result_text.split()) - len(finalized_text.split())
+            spans = _flat_word_spans(segments)
+            if committed > 0 and len(spans) >= committed:
+                self._recorder.note_commit_group(
+                    spans[:committed], time.perf_counter()
+                )
+            return result_text, trim_bytes
+
+        self._replace("_finalize_completed_segments", original, finalize)
+
+    def _replace(self, name: str, original, replacement) -> None:
+        self._patched.append((name, original))
+        setattr(live_daemon, name, replacement)
+
+
+def _commit_instrumentation(recorder: SessionRecorder) -> _CommitInstrumentation:
+    return _CommitInstrumentation(recorder)
+
+
 @contextlib.contextmanager
 def instrument_daemon(recorder: SessionRecorder):
     """Wrap daemon buffer and send methods to record timing without editing them."""
     original_append = live_daemon._AudioBuffer.append
     original_snapshot = live_daemon._AudioBuffer.take_snapshot
     original_wait = live_daemon._AudioBuffer.wait_for_audio
+    original_trim = live_daemon._AudioBuffer.trim
+    original_overflow = live_daemon._trim_oldest_audio
     original_send = live_daemon._send_message
+    commit_hook = _commit_instrumentation(recorder)
 
     def append(self, data, max_bytes, max_session_bytes=None):
         original_append(self, data, max_bytes, max_session_bytes)
@@ -229,6 +301,15 @@ def instrument_daemon(recorder: SessionRecorder):
     def take_snapshot(self):
         recorder.note_snapshot(time.perf_counter())
         return original_snapshot(self)
+
+    def trim(self, num_bytes):
+        original_trim(self, num_bytes)
+        recorder.note_trim(num_bytes)
+
+    def trim_oldest(audio_buffer, max_bytes):
+        before = len(audio_buffer)
+        original_overflow(audio_buffer, max_bytes)
+        recorder.note_trim(before - len(audio_buffer))
 
     def wait_for_audio(self, watermark_bytes, timeout):
         woke = original_wait(self, watermark_bytes, timeout)
@@ -242,14 +323,20 @@ def instrument_daemon(recorder: SessionRecorder):
 
     live_daemon._AudioBuffer.append = append
     live_daemon._AudioBuffer.take_snapshot = take_snapshot
+    live_daemon._AudioBuffer.trim = trim
     live_daemon._AudioBuffer.wait_for_audio = wait_for_audio
+    live_daemon._trim_oldest_audio = trim_oldest
     live_daemon._send_message = send_message
+    commit_hook.patch()
     try:
         yield
     finally:
+        commit_hook.unpatch()
         live_daemon._AudioBuffer.append = original_append
         live_daemon._AudioBuffer.take_snapshot = original_snapshot
+        live_daemon._AudioBuffer.trim = original_trim
         live_daemon._AudioBuffer.wait_for_audio = original_wait
+        live_daemon._trim_oldest_audio = original_overflow
         live_daemon._send_message = original_send
 
 
@@ -603,6 +690,26 @@ def _latency_metrics(
     }
 
 
+def _word_commit_metrics(
+    recorder: SessionRecorder, audio_started_at: float
+) -> dict:
+    delays: List[float] = []
+    for group in recorder.commit_groups:
+        if group["send_at"] is None:
+            continue
+        word_start = audio_started_at + group["buffer_start_seconds"]
+        delays.extend(
+            group["send_at"] - (word_start + end) for end in group["end_times"]
+        )
+    return {
+        "samples": len(delays),
+        "samples_seconds": delays,
+        "p50_seconds": _percentile(delays, 50),
+        "p95_seconds": _percentile(delays, 95),
+        "max_seconds": max(delays) if delays else None,
+    }
+
+
 def _correction_metrics(messages: Sequence[dict], final_text: str) -> dict:
     counts = {"backspaces": 0, "backspace_calls": 0, "type_calls": 0, "typed_chars": 0}
     typer = ProgressiveTyper()
@@ -614,6 +721,8 @@ def _correction_metrics(messages: Sequence[dict], final_text: str) -> dict:
     committed_regressions = 0
     final_backspaces = 0
     final_changed = False
+    visible_text = ""
+    visible_backspaces = 0
 
     def fake_backspaces(count: int) -> None:
         counts["backspace_calls"] += 1
@@ -645,6 +754,8 @@ def _correction_metrics(messages: Sequence[dict], final_text: str) -> dict:
                 if not typer.committed.startswith(previous_committed):
                     committed_regressions += 1
                 previous_committed = typer.committed
+                visible_text = typer.displayed_text
+                visible_backspaces = counts["backspaces"]
             elif message["type"] == "final":
                 before = counts["backspaces"]
                 typer.apply_final(message["text"])
@@ -660,6 +771,7 @@ def _correction_metrics(messages: Sequence[dict], final_text: str) -> dict:
         "partial_messages": sum(1 for message in messages if message["type"] == "partial"),
         "partial_revisions": revisions,
         "backspaces_total": counts["backspaces"],
+        "visible_backspaces": visible_backspaces,
         "backspace_calls": counts["backspace_calls"],
         "typed_characters": counts["typed_chars"],
         "final_backspaces": final_backspaces,
@@ -668,9 +780,14 @@ def _correction_metrics(messages: Sequence[dict], final_text: str) -> dict:
         "backspaces_per_100_words": (
             counts["backspaces"] / word_count * 100.0 if word_count else None
         ),
+        "visible_backspaces_per_100_words": (
+            visible_backspaces / word_count * 100.0 if word_count else None
+        ),
+        "revisions_per_word": revisions / word_count if word_count else None,
         "finalized_prefix_regressions": len(regressions),
         "finalized_prefix_regression_examples": regressions[:3],
         "committed_prefix_regressions": committed_regressions,
+        "visible_text": visible_text.strip(),
         "displayed_text": displayed_text.strip(),
         "committed_text": committed_text.strip(),
     }
@@ -701,6 +818,8 @@ def benchmark_fixture(model, fixture: Fixture) -> Tuple[dict, List[Tuple[float, 
     decode = _decode_metrics(recorder, fixture.audio_seconds, session_seconds)
     latency = _latency_metrics(recorder, messages, session_started)
     corrections = _correction_metrics(messages, final_text)
+    word_commit = _word_commit_metrics(recorder, session_started)
+    visible_text = corrections["visible_text"]
 
     intervals = [
         (decode_call["started_at"], decode_call["finished_at"])
@@ -717,6 +836,7 @@ def benchmark_fixture(model, fixture: Fixture) -> Tuple[dict, List[Tuple[float, 
         "reference_present": reference_text is not None,
         "final_source": final_source,
         "final_text": final_text,
+        "visible_text": visible_text,
         "reference_text": reference_text,
         "script_text": script,
         "script_wer_included": script_wer_included,
@@ -727,8 +847,11 @@ def benchmark_fixture(model, fixture: Fixture) -> Tuple[dict, List[Tuple[float, 
         },
         "wer_reference": _wer_block(reference_text, final_text),
         "wer_script": _wer_block(script, final_text),
+        "visible_wer_reference": _wer_block(reference_text, visible_text),
+        "visible_wer_script": _wer_block(script, visible_text),
         "decode": decode,
         "latency": latency,
+        "word_commit_delay": word_commit,
         "corrections": corrections,
     }
     return result, intervals
@@ -788,7 +911,22 @@ def _aggregate(results: Sequence[dict]) -> dict:
                 if result["script_wer_included"] and result["wer_script"]
             ]
         ),
+        "visible_wer_reference": _sum_wer(
+            [
+                result["visible_wer_reference"]
+                for result in results
+                if result["visible_wer_reference"]
+            ]
+        ),
+        "visible_wer_script": _sum_wer(
+            [
+                result["visible_wer_script"]
+                for result in results
+                if result["script_wer_included"] and result["visible_wer_script"]
+            ]
+        ),
         "latency": _pool_latency(results),
+        "word_commit_delay": _pool_word_commit_delay(results),
         "corrections": {
             "partial_messages": sum(
                 result["corrections"]["partial_messages"] for result in results
@@ -797,8 +935,24 @@ def _aggregate(results: Sequence[dict]) -> dict:
                 result["corrections"]["partial_revisions"] for result in results
             ),
             "backspaces_total": backspaces,
+            "visible_backspaces": sum(
+                result["corrections"]["visible_backspaces"] for result in results
+            ),
             "words_in_final_transcript": words,
             "backspaces_per_100_words": backspaces / words * 100.0 if words else None,
+            "visible_backspaces_per_100_words": (
+                sum(result["corrections"]["visible_backspaces"] for result in results)
+                / words
+                * 100.0
+                if words
+                else None
+            ),
+            "revisions_per_word": (
+                sum(result["corrections"]["partial_revisions"] for result in results)
+                / words
+                if words
+                else None
+            ),
             "finalized_prefix_regressions": sum(
                 result["corrections"]["finalized_prefix_regressions"]
                 for result in results
@@ -832,6 +986,18 @@ def _pool_latency(results: Sequence[dict]) -> dict:
                 if result["latency"]["time_to_first_partial_seconds"] is not None
             ]
         ),
+    }
+
+
+def _pool_word_commit_delay(results: Sequence[dict]) -> dict:
+    samples: List[float] = []
+    for result in results:
+        samples.extend(result["word_commit_delay"]["samples_seconds"])
+    return {
+        "samples": len(samples),
+        "p50_seconds": _percentile(samples, 50),
+        "p95_seconds": _percentile(samples, 95),
+        "max_seconds": max(samples) if samples else None,
     }
 
 
@@ -1031,6 +1197,25 @@ def _print_run(run: dict, fixture_results: Sequence[dict], vram: dict) -> None:
     print(
         f"  First partial after audio start (median): "
         f"{_format_latency(latency['time_to_first_partial_seconds'])}"
+    )
+    word_commit = aggregate["word_commit_delay"]
+    print(
+        f"  Word commit delay p50/p95/max: "
+        f"{_format_latency(word_commit['p50_seconds'])} / "
+        f"{_format_latency(word_commit['p95_seconds'])} / "
+        f"{_format_latency(word_commit['max_seconds'])} "
+        f"({word_commit['samples']} words); revisions/word "
+        f"{_format_metric(corrections['revisions_per_word'])}"
+    )
+    visible_reference = aggregate.get("visible_wer_reference")
+    visible_script = aggregate.get("visible_wer_script")
+    print(
+        f"  Visible screen before final: WER_ref "
+        f"{_format_metric(visible_reference['wer'] if visible_reference else None)} "
+        f"WER_scr "
+        f"{_format_metric(visible_script['wer'] if visible_script else None)}; "
+        f"visible backspaces {corrections['visible_backspaces']} "
+        f"({_format_metric(corrections['visible_backspaces_per_100_words'], 1)}/100w)"
     )
     print(
         f"  VRAM: baseline {_format_metric(vram['baseline_mib'], 0)} MiB, "
